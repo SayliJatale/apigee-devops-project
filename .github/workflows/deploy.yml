@@ -11,26 +11,26 @@ jobs:
 
     steps:
     # 1️⃣ Checkout repository
-    - name: Checkout repository
+    - name: Checkout code
       uses: actions/checkout@v4
 
     # 2️⃣ Authenticate to Google Cloud
-    - name: Auth to Google Cloud
+    - name: Authenticate
       uses: google-github-actions/auth@v2
       with:
         credentials_json: '${{ secrets.GCP_SA_KEY }}'
 
-    # 3️⃣ Set up gcloud SDK
-    - name: Set up gcloud
+    # 3️⃣ Setup gcloud
+    - name: Setup gcloud
       uses: google-github-actions/setup-gcloud@v2
 
     # 4️⃣ Install dependencies
-    - name: Install dependencies
+    - name: Install tools
       run: |
-        sudo apt-get update && sudo apt-get install -y jq curl unzip zip
+        sudo apt-get update && sudo apt-get install -y jq unzip zip curl
 
     # 5️⃣ Prepare proxy bundle
-    - name: Prepare proxy bundle
+    - name: Zip API proxy
       run: |
         if [ ! -f "./apiproxy.zip" ]; then
           echo "Zipping proxy folder..."
@@ -46,7 +46,7 @@ jobs:
         echo "Getting access token..."
         TOKEN=$(gcloud auth print-access-token)
 
-        echo "Uploading API bundle via REST API..."
+        echo "Uploading API bundle..."
         IMPORT_RESPONSE=$(curl -s -X POST \
           -H "Authorization: Bearer $TOKEN" \
           -F "file=@./apiproxy.zip" \
@@ -56,42 +56,39 @@ jobs:
 
         # Extract revision number
         REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision')
-        echo "Imported revision: $REVISION"
-
         if [ -z "$REVISION" ] || [ "$REVISION" == "null" ]; then
-          echo "Error: Failed to detect revision from import."
+          echo "❌ Failed to detect revision from import."
           exit 1
         fi
 
-        # Export for deploy step
+        echo "Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 7️⃣ Debug info before deploy
-    - name: Debug before deploy
+    # 7️⃣ Optional debug before deployment
+    - name: Debug info
       run: |
         echo "APIGEE_ORG=${{ secrets.APIGEE_ORG }}"
         echo "APIGEE_ENV=${{ secrets.APIGEE_ENV }}"
         echo "REVISION=$REVISION"
         ls -l ./apiproxy
 
-    # 8️⃣ Deploy API proxy using the new gcloud deployments create syntax
+    # 8️⃣ Deploy API proxy
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
         ENV="${{ secrets.APIGEE_ENV }}"
-        API_NAME="demoapi"
+        API="demoapi"
 
         if [ -z "$REVISION" ] || [ "$REVISION" == "null" ]; then
-          echo "Error: REVISION is not set. Cannot deploy."
+          echo "❌ REVISION is not set. Cannot deploy."
           exit 1
         fi
 
         echo "Deploying revision $REVISION to environment $ENV..."
-        gcloud apigee deployments create \
-          --name="$API_NAME" \
-          --api="$API_NAME" \
-          --revision="$REVISION" \
+        gcloud apigee apis deploy "$REVISION" \
+          --api="$API" \
           --environment="$ENV" \
-          --organization="$ORG"
+          --organization="$ORG" \
+          --override
 
-        echo "Deployment complete!"
+        echo "✅ Deployment complete!"
