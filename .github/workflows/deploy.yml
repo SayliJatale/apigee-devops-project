@@ -27,7 +27,8 @@ jobs:
     # 4️⃣ Install dependencies
     - name: Install dependencies
       run: |
-        sudo apt-get update && sudo apt-get install -y jq curl unzip zip
+        sudo apt-get update
+        sudo apt-get install -y jq curl unzip zip
 
     # 5️⃣ Install Apigee CLI
     - name: Install Apigee CLI
@@ -37,26 +38,20 @@ jobs:
         ./download.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6️⃣ Import API proxy (zip method)
+    # 6️⃣ Import API proxy via Apigee CLI (folder, not zip)
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
-        API_NAME="demoapi"
-        API_FOLDER="$GITHUB_WORKSPACE/apiproxies/$API_NAME"
-        ZIP_FILE="$GITHUB_WORKSPACE/${API_NAME}.zip"
+        API_FOLDER="$GITHUB_WORKSPACE/apiproxies/demoapi"
 
         echo "Checking contents of API folder..."
         ls -R "$API_FOLDER"
-
-        echo "Zipping proxy folder..."
-        cd "$API_FOLDER"
-        zip -r "$ZIP_FILE" ./*
 
         echo "Getting access token..."
         TOKEN=$(gcloud auth print-access-token)
 
         echo "Importing API proxy via apigeecli..."
-        IMPORT_RESPONSE=$(apigeecli apis import -f "$ZIP_FILE" --org "$ORG" --token "$TOKEN" 2>&1 || true)
+        IMPORT_RESPONSE=$(apigeecli apis import -f "$API_FOLDER" --org "$ORG" --token "$TOKEN" 2>&1 || true)
 
         echo "Import response:"
         echo "$IMPORT_RESPONSE"
@@ -71,7 +66,7 @@ jobs:
         echo "Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 7️⃣ Deploy API proxy
+    # 7️⃣ Deploy API proxy via Apigee CLI
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
