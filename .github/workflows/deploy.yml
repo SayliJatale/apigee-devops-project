@@ -1,73 +1,66 @@
-name: Apigee CI/CD Pipeline
+name: Apigee CI/CD Deploy
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch:
 
 jobs:
-  deploy-api:
+  deploy-apigee:
     runs-on: ubuntu-latest
-
     env:
-      APIGEE_ORG: ${{ secrets.APIGEE_ORG }}
-      APIGEE_PROJECT: ${{ secrets.APIGEE_PROJECT }}
-      API_NAME: demoapi
+      ORG: "***"              # Apigee org
+      ENV: "test"             # Apigee environment
+      API_PROXY_NAME: "demoapi"
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
+      - name: Checkout repo
+        uses: actions/checkout@v3
 
-    - name: Setup gcloud
-      uses: google-github-actions/setup-gcloud@v2
-      with:
-        project_id: ${{ secrets.GCP_PROJECT }}
-        service_account_key: ${{ secrets.GCP_SA_KEY }}
-        export_default_credentials: true
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq curl unzip zip libxml2-utils
 
-    - name: Install required tools
-      run: |
-        sudo apt-get update && sudo apt-get install -y \
-          jq curl unzip zip libxml2-utils
+      - name: Setup gcloud with Service Account
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT }}
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          export_default_credentials: true
 
-    - name: Download Apigee CLI
-      run: |
-        curl -sL https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
-        bash download.sh
-        export PATH=$PATH:$HOME/.apigeecli/bin
+      - name: Download Apigee CLI
+        run: |
+          curl -sL https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
+          chmod +x download.sh
+          ./download.sh
+          export PATH=$PATH:$HOME/.apigeecli/bin
 
-    - name: Validate and Import API proxy
-      run: |
-        API_FOLDER="$GITHUB_WORKSPACE/apiproxies/$API_NAME"
-        echo "=============================="
-        echo "Processing API proxy: $API_NAME"
-        echo "=============================="
+      - name: Validate XML files
+        run: |
+          find apiproxies/${{ env.API_PROXY_NAME }} -name '*.xml' -exec xmllint --noout {} \;
+          echo "All XML files are valid."
 
-        echo "Checking contents of API folder..."
-        ls -R "$API_FOLDER"
+      - name: Zip API proxy bundle
+        run: |
+          cd apiproxies
+          zip -r ../${{ env.API_PROXY_NAME }}.zip ${{ env.API_PROXY_NAME }} -x "*/.*" 
+          cd ..
+          echo "Contents of zip:"
+          unzip -l ${{ env.API_PROXY_NAME }}.zip
 
-        echo "Validating XML files..."
-        find "$API_FOLDER" -name "*.xml" -exec xmllint --noout {} \;
+      - name: Get access token
+        run: |
+          echo "Getting access token..."
+          TOKEN=$(gcloud auth print-access-token)
+          echo "TOKEN=$TOKEN" >> $GITHUB_ENV
 
-        echo "Getting access token..."
-        TOKEN=$(gcloud auth print-access-token)
+      - name: Import API proxy to Apigee
+        run: |
+          echo "Importing API proxy via Apigee CLI..."
+          apigeecli apis import -f ${{ env.API_PROXY_NAME }}.zip -o ${{ env.ORG }} -t "$TOKEN"
 
-        echo "Importing API proxy via Apigee CLI from folder..."
-        IMPORT_RESPONSE=$(apigeecli apis import -f "$API_FOLDER" --org "$APIGEE_ORG" --token "$TOKEN" 2>&1 || true)
-
-        echo "Raw import output:"
-        echo "$IMPORT_RESPONSE"
-
-        REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision // empty')
-        if [ -z "$REVISION" ]; then
-          echo "❌ Import failed! Check API proxy folder contents or raw output above."
-          exit 1
-        fi
-
-        echo "✅ Imported revision: $REVISION"
-        echo "REVISION=$REVISION" >> $GITHUB_ENV
-
-    - name: Success message
-      run: |
-        echo "API proxy imported successfully. Revision: $REVISION"
+      - name: Deploy API proxy to environment
+        run: |
+          echo "Deploying API proxy to environment ${{ env.ENV }}..."
+          apigeecli apis deploy -n ${{ env.API_PROXY_NAME }} -o ${{ env.ORG }} -e ${{ env.ENV }} -t "$TOKEN" -d
