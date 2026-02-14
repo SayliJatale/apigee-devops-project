@@ -58,11 +58,9 @@ jobs:
           exit 1
         fi
 
-        echo "Zipping proxy folder..."
-        if [ -f "$API_ZIP" ]; then
-          rm "$API_ZIP"
-        fi
-        zip -r "$API_ZIP" "$API_FOLDER"
+        echo "Zipping proxy folder contents..."
+        cd "$API_FOLDER"
+        zip -r "$API_ZIP" ./*
 
         echo "Getting access token..."
         TOKEN=$(gcloud auth print-access-token)
