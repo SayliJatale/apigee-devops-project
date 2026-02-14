@@ -37,7 +37,7 @@ jobs:
           zip -r apiproxy.zip ./apiproxy
         fi
 
-    # 6️⃣ Import API proxy via REST API
+    # 6️⃣ Import API proxy via Apigee REST API
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
@@ -64,10 +64,9 @@ jobs:
         echo "Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 7️⃣ Deploy the latest revision via modern gcloud syntax
+    # 7️⃣ Deploy the latest revision using correct gcloud syntax
     - name: Deploy API proxy
       run: |
-        PROJECT="${{ secrets.GCP_PROJECT }}"
         ORG="${{ secrets.APIGEE_ORG }}"
         ENV="${{ secrets.APIGEE_ENV }}"
         API_NAME="demoapi"
@@ -78,11 +77,10 @@ jobs:
         fi
 
         echo "Deploying revision $REVISION to environment $ENV..."
-
-        gcloud apigee api-proxies deploy \
-          --project="$PROJECT" \
+        gcloud apigee apis deploy \
           --api="$API_NAME" \
           --revision="$REVISION" \
-          --environment="$ENV"
+          --environment="$ENV" \
+          --organization="$ORG"
 
         echo "Deployment complete!"
