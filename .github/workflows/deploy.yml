@@ -38,20 +38,31 @@ jobs:
         ./download.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6️⃣ Import API proxy via Apigee CLI
-    - name: Import API proxy
+    # 6️⃣ Zip API proxy folder
+    - name: Zip API proxy folder
       run: |
-        ORG="${{ secrets.APIGEE_ORG }}"
         API_FOLDER="$GITHUB_WORKSPACE/apiproxies/demoapi"
+        ZIP_FILE="$GITHUB_WORKSPACE/demoapi.zip"
 
         echo "Checking contents of API folder..."
         ls -R "$API_FOLDER"
+
+        echo "Zipping API proxy folder..."
+        cd "$API_FOLDER"
+        zip -r "$ZIP_FILE" ./*
+        echo "Zipped file created at $ZIP_FILE"
+
+    # 7️⃣ Import API proxy via Apigee CLI
+    - name: Import API proxy
+      run: |
+        ORG="${{ secrets.APIGEE_ORG }}"
+        ZIP_FILE="$GITHUB_WORKSPACE/demoapi.zip"
 
         echo "Getting access token..."
         TOKEN=$(gcloud auth print-access-token)
 
         echo "Importing API proxy via apigeecli..."
-        IMPORT_RESPONSE=$(apigeecli apis import -f "$(realpath $API_FOLDER)" --org "$ORG" --default-token 2>&1 || true)
+        IMPORT_RESPONSE=$(apigeecli apis import -f "$ZIP_FILE" --org "$ORG" --default-token 2>&1 || true)
 
         echo "Import response:"
         echo "$IMPORT_RESPONSE"
@@ -66,7 +77,7 @@ jobs:
         echo "Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 7️⃣ Deploy API proxy via Apigee CLI
+    # 8️⃣ Deploy API proxy via Apigee CLI
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
