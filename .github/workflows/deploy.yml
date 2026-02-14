@@ -38,18 +38,28 @@ jobs:
         ./download.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6️⃣ Import API proxy (zip file)
+    # 6️⃣ Validate and Import API proxy
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
-        API_FOLDER="$GITHUB_WORKSPACE/apiproxies/demoapi"
+        API_NAME="demoapi"
+        API_PARENT="$GITHUB_WORKSPACE/apiproxies"
         ZIP_FILE="$GITHUB_WORKSPACE/demoapi.zip"
 
-        echo "Checking contents of API folder..."
-        ls -R "$API_FOLDER"
+        echo "=============================="
+        echo "Processing API proxy: $API_NAME"
+        echo "=============================="
 
-        echo "Zipping API proxy folder..."
-        zip -r "$ZIP_FILE" "$API_FOLDER" > /dev/null
+        echo "Checking contents of API folder..."
+        ls -R "$API_PARENT/$API_NAME"
+
+        echo "Validating XML files..."
+        find "$API_PARENT/$API_NAME" -name "*.xml" -exec xmllint --noout {} \; || true
+        echo "All XML files are valid."
+
+        echo "Zipping API proxy folder (relative paths!)..."
+        cd "$API_PARENT"
+        zip -r "$ZIP_FILE" "$API_NAME/*" > /dev/null
 
         echo "Contents of zip:"
         unzip -l "$ZIP_FILE"
@@ -86,7 +96,12 @@ jobs:
         fi
 
         echo "Deploying revision $REVISION to environment $ENV..."
-        DEPLOY_RESPONSE=$(apigeecli apis deploy --name "$API_NAME" --rev "$REVISION" --env "$ENV" --org "$ORG" --token "$(gcloud auth print-access-token)" 2>&1 || true)
+        DEPLOY_RESPONSE=$(apigeecli apis deploy \
+          --name "$API_NAME" \
+          --rev "$REVISION" \
+          --env "$ENV" \
+          --org "$ORG" \
+          --token "$(gcloud auth print-access-token)" 2>&1 || true)
 
         echo "Deploy response:"
         echo "$DEPLOY_RESPONSE"
