@@ -37,7 +37,7 @@ jobs:
         ./download.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6️⃣ Zip API proxy contents correctly
+    # 6️⃣ Zip API proxy with top-level folder (required by Apigee)
     - name: Zip API proxy folder
       run: |
         API_NAME="demoapi"
@@ -47,12 +47,13 @@ jobs:
         echo "Checking contents of API folder..."
         ls -R "$API_FOLDER"
 
-        echo "Creating zip of API proxy contents (without parent folder)..."
-        cd "$API_FOLDER"
-        zip -r "$ZIP_FILE" ./* 
+        echo "Creating zip of API proxy contents (with top-level folder)..."
+        cd "$API_FOLDER/.."
+        zip -r "$ZIP_FILE" "$API_NAME"
         cd "$GITHUB_WORKSPACE"
+
         echo "Zipped file created at $ZIP_FILE"
-        ls -lh "$ZIP_FILE"
+        unzip -l "$ZIP_FILE"
 
     # 7️⃣ Import API proxy via Apigee CLI
     - name: Import API proxy
@@ -63,23 +64,21 @@ jobs:
         echo "Getting access token..."
         TOKEN=$(gcloud auth print-access-token)
 
-        echo "Importing API proxy via Apigee CLI..."
+        echo "Importing API proxy via apigeecli..."
         IMPORT_RESPONSE=$(apigeecli apis import -f "$ZIP_FILE" --org "$ORG" --token "$TOKEN" 2>&1 || true)
 
         echo "Import response:"
         echo "$IMPORT_RESPONSE"
 
         # Extract revision safely
-        if echo "$IMPORT_RESPONSE" | grep -q '"revision"'; then
-          REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision')
-          echo "Imported revision: $REVISION"
-          echo "REVISION=$REVISION" >> $GITHUB_ENV
-        else
-          echo "❌ Import failed! Check API proxy zip contents."
-          echo "Contents of zip:"
-          unzip -l "$ZIP_FILE"
+        REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision // empty')
+        if [ -z "$REVISION" ]; then
+          echo "❌ Error: Failed to detect revision from import. Check API proxy zip contents."
           exit 1
         fi
+
+        echo "Imported revision: $REVISION"
+        echo "REVISION=$REVISION" >> $GITHUB_ENV
 
     # 8️⃣ Deploy API proxy via Apigee CLI
     - name: Deploy API proxy
