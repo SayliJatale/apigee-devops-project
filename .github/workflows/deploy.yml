@@ -10,8 +10,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1️⃣ Checkout repository
-    - name: Checkout code
+    # 1️⃣ Checkout code
+    - name: Checkout repository
       uses: actions/checkout@v4
 
     # 2️⃣ Authenticate to Google Cloud
@@ -20,59 +20,50 @@ jobs:
       with:
         credentials_json: '${{ secrets.GCP_SA_KEY }}'
 
-    # 3️⃣ Set up gcloud
+    # 3️⃣ Set up gcloud SDK
     - name: Set up gcloud
       uses: google-github-actions/setup-gcloud@v2
 
-    # 4️⃣ Install apigeecli & dependencies and set PATH globally
-    - name: Install apigeecli & dependencies
-      run: |
-        sudo apt-get update && sudo apt-get install -y jq unzip curl
-
-        # Download and install Apigee CLI
-        curl -L https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
-        chmod +x download.sh
-        ./download.sh
-
-        # Add CLI to PATH for all subsequent steps
-        echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
-
-        # Verify installation
-        $HOME/.apigeecli/bin/apigeecli help
+    # 4️⃣ Install dependencies (jq for JSON parsing)
+    - name: Install jq
+      run: sudo apt-get update && sudo apt-get install -y jq
 
     # 5️⃣ Import API proxy
     - name: Import API proxy
       run: |
-        TOKEN=$(gcloud auth print-access-token)
+        ORG="${{ secrets.APIGEE_ORG }}"
+        echo "Importing API proxy..."
+        gcloud apigee apis import ./apiproxy \
+          --organization="$ORG"
 
-        echo "Uploading API bundle..."
-        IMPORT_OUTPUT=$(apigeecli apis import \
-          --org ${{ secrets.APIGEE_ORG }} \
-          --name demoapi \
-          --bundle ./apiproxy \
-          --token $TOKEN \
-          --json)
+    # 6️⃣ Detect latest revision
+    - name: Get latest revision
+      id: get-revision
+      run: |
+        ORG="${{ secrets.APIGEE_ORG }}"
+        API_NAME="demoapi"
 
-        echo "Import output: $IMPORT_OUTPUT"
-
-        # Extract the latest revision
-        REVISION=$(echo $IMPORT_OUTPUT | jq -r '.revision')
-        echo "Revision detected: $REVISION"
+        REVISION=$(gcloud apigee apis list --organization="$ORG" --format=json \
+          | jq -r ".[] | select(.name==\"$API_NAME\") | .latestRevision")
 
         if [ -z "$REVISION" ] || [ "$REVISION" == "null" ]; then
-          echo "Revision detection failed. Exiting."
+          echo "Error: Could not detect latest revision."
           exit 1
         fi
 
-    # 6️⃣ Deploy API proxy
+        echo "Latest revision detected: $REVISION"
+        echo "REVISION=$REVISION" >> $GITHUB_ENV
+
+    # 7️⃣ Deploy API proxy
     - name: Deploy API proxy
       run: |
-        TOKEN=$(gcloud auth print-access-token)
-        echo "Deploying revision $REVISION..."
-        apigeecli apis deploy \
-          --org ${{ secrets.APIGEE_ORG }} \
-          --name demoapi \
-          --env ${{ secrets.APIGEE_ENV }} \
-          --rev $REVISION \
-          --token $TOKEN \
-          --ovr
+        ORG="${{ secrets.APIGEE_ORG }}"
+        ENV="${{ secrets.APIGEE_ENV }}"
+        API_NAME="demoapi"
+
+        echo "Deploying revision $REVISION to environment $ENV..."
+        gcloud apigee apis deploy "$REVISION" \
+          --organization="$ORG" \
+          --environment="$ENV"
+
+        echo "Deployment complete!"
