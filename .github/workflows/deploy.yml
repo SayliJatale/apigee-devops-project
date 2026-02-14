@@ -24,11 +24,7 @@ jobs:
     - name: Set up gcloud
       uses: google-github-actions/setup-gcloud@v2
 
-    # 4️⃣ Install dependencies: apigeecli & jq
+    # 4️⃣ Install dependencies: apigeecli & jq safely
     - name: Install apigeecli & jq
       run: |
-        sudo apt-get update && sudo apt-get install -y jq
-        curl -L https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
-        chmod +x download.sh
-        ./download.sh
-        echo "$HOME/.apigeecli/bin" >> $GIT
+        #
