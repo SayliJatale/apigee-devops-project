@@ -54,42 +54,30 @@ jobs:
 
         echo "Import response: $IMPORT_RESPONSE"
 
-        # Extract revision number
+        # Extract revision number (optional, for logging/debug)
         REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision')
-        echo "DEBUG: Extracted revision: $REVISION"
+        echo "Imported revision: $REVISION"
 
-        if [ -z "$REVISION" ] || [ "$REVISION" == "null" ]; then
-          echo "Error: Failed to detect revision from import."
-          exit 1
-        fi
-
-        # Export revision for next step
+        # Export for debugging
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
     # 7️⃣ Debug info before deploy
     - name: Debug before deploy
       run: |
-        echo "REVISION=$REVISION"
         echo "APIGEE_ORG=${{ secrets.APIGEE_ORG }}"
         echo "APIGEE_ENV=${{ secrets.APIGEE_ENV }}"
+        echo "REVISION=$REVISION"
         ls -l ./apiproxy
 
-    # 8️⃣ Deploy API proxy using correct gcloud syntax
+    # 8️⃣ Deploy API proxy using latest gcloud syntax
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
         ENV="${{ secrets.APIGEE_ENV }}"
         API_NAME="demoapi"
 
-        if [ -z "$REVISION" ] || [ "$REVISION" == "null" ]; then
-          echo "Error: REVISION is not set. Cannot deploy."
-          exit 1
-        fi
-
-        echo "Deploying revision $REVISION to environment $ENV..."
-        gcloud apigee apis deploy \
-          --api="$API_NAME" \
-          --revision="$REVISION" \
+        echo "Deploying API proxy $API_NAME to environment $ENV..."
+        gcloud apigee apis deploy "$API_NAME" \
           --environment="$ENV" \
           --organization="$ORG" \
           --override
