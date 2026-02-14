@@ -24,10 +24,10 @@ jobs:
     - name: Set up gcloud
       uses: google-github-actions/setup-gcloud@v2
 
-    # 4️⃣ Install dependencies (jq for JSON parsing)
+    # 4️⃣ Install dependencies (jq for JSON parsing, curl for REST API)
     - name: Install dependencies
       run: |
-        sudo apt-get update && sudo apt-get install -y jq curl unzip
+        sudo apt-get update && sudo apt-get install -y jq curl unzip zip
 
     # 5️⃣ Create ZIP bundle of your proxy (if not already zipped)
     - name: Prepare proxy bundle
@@ -37,7 +37,7 @@ jobs:
           zip -r apiproxy.zip ./apiproxy
         fi
 
-    # 6️⃣ Import API proxy via Apigee Management API
+    # 6️⃣ Import API proxy via Apigee Management API (with required name)
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
@@ -49,6 +49,7 @@ jobs:
         echo "Uploading API bundle via REST API..."
         IMPORT_RESPONSE=$(curl -s -X POST \
           -H "Authorization: Bearer $TOKEN" \
+          -F "name=$API_NAME" \
           -F "file=@./apiproxy.zip" \
           "https://apigee.googleapis.com/v1/organizations/$ORG/apis?action=import")
 
