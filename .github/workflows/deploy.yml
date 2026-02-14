@@ -37,15 +37,7 @@ jobs:
         ./download.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6️⃣ Prepare proxy zip
-    - name: Prepare proxy bundle
-      run: |
-        if [ ! -f "./apiproxy.zip" ]; then
-          echo "Zipping proxy folder..."
-          zip -r apiproxy.zip ./apiproxy
-        fi
-
-    # 7️⃣ Import API proxy
+    # 6️⃣ Import API proxy via apigeecli (folder, not zip)
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
@@ -55,41 +47,39 @@ jobs:
         TOKEN=$(gcloud auth print-access-token)
 
         echo "Importing API proxy via apigeecli..."
-        IMPORT_RESPONSE=$(apigeecli apis import -f ./apiproxy.zip -o "$ORG" -t "$TOKEN")
-        echo "$IMPORT_RESPONSE"
+        IMPORT_RESPONSE=$(apigeecli apis import -f ./apiproxy -o "$ORG" -t "$TOKEN")
+
+        echo "Import response: $IMPORT_RESPONSE"
 
         # Extract revision number
         REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision')
         if [ -z "$REVISION" ] || [ "$REVISION" == "null" ]; then
-          echo "❌ Failed to detect revision from import. Check proxy bundle for errors."
+          echo "❌ Error: Failed to detect revision from import."
           exit 1
         fi
+
         echo "Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 8️⃣ Deploy API proxy via REST API
+    # 7️⃣ Deploy API proxy
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
         ENV="${{ secrets.APIGEE_ENV }}"
         API_NAME="demoapi"
-        REVISION="${{ env.REVISION }}"
 
-        echo "Getting access token..."
-        TOKEN=$(gcloud auth print-access-token)
-
-        echo "Deploying revision $REVISION to environment $ENV via REST API..."
-        DEPLOY_RESPONSE=$(curl -s -X POST \
-          -H "Authorization: Bearer $TOKEN" \
-          -H "Content-Type: application/json" \
-          -d '{}' \
-          "https://apigee.googleapis.com/v1/organizations/$ORG/environments/$ENV/apis/$API_NAME/revisions/$REVISION/deployments")
-
-        echo "$DEPLOY_RESPONSE"
-
-        if echo "$DEPLOY_RESPONSE" | jq -e '.error' >/dev/null; then
-          echo "❌ Deployment failed!"
+        if [ -z "$REVISION" ] || [ "$REVISION" == "null" ]; then
+          echo "❌ Error: REVISION is not set. Cannot deploy."
           exit 1
         fi
 
-        echo "✅ Deployment successful!"
+        echo "Deploying revision $REVISION to environment $ENV..."
+        apigeecli apis deploy \
+          -n "$API_NAME" \
+          -r "$REVISION" \
+          -e "$ENV" \
+          -o "$ORG" \
+          -t "$TOKEN" \
+          --ovr
+
+        echo "✅ Deployment complete!"
