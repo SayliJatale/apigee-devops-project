@@ -35,22 +35,29 @@ jobs:
         curl -sL https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
         chmod +x download.sh
         ./download.sh
+        export PATH=$PATH:$HOME/.apigeecli/bin
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6️⃣ Import API proxy via Apigee CLI (folder, not zip)
+    # 6️⃣ Zip API proxy and import via Apigee CLI
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
-        API_FOLDER="$GITHUB_WORKSPACE/apiproxies/demoapi"
+        API_NAME="demoapi"
+        API_FOLDER="$GITHUB_WORKSPACE/apiproxies/$API_NAME"
+        ZIP_FILE="$GITHUB_WORKSPACE/$API_NAME.zip"
 
         echo "Checking contents of API folder..."
         ls -R "$API_FOLDER"
+
+        echo "Zipping proxy folder..."
+        cd "$API_FOLDER"
+        zip -r "$ZIP_FILE" ./*
 
         echo "Getting access token..."
         TOKEN=$(gcloud auth print-access-token)
 
         echo "Importing API proxy via apigeecli..."
-        IMPORT_RESPONSE=$(apigeecli apis import -f "$API_FOLDER" --org "$ORG" --token "$TOKEN" 2>&1 || true)
+        IMPORT_RESPONSE=$(apigeecli apis import -f "$ZIP_FILE" --org "$ORG" --token "$TOKEN" 2>&1 || true)
 
         echo "Import response:"
         echo "$IMPORT_RESPONSE"
