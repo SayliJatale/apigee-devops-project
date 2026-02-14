@@ -24,11 +24,10 @@ jobs:
     - name: Set up gcloud
       uses: google-github-actions/setup-gcloud@v2
 
-    # 4️⃣ Install system dependencies
+    # 4️⃣ Install dependencies
     - name: Install dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y jq curl unzip zip libxml2-utils
+        sudo apt-get update && sudo apt-get install -y jq curl unzip zip
 
     # 5️⃣ Install Apigee CLI
     - name: Install Apigee CLI
@@ -38,7 +37,7 @@ jobs:
         ./download.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6️⃣ Prepare and zip API proxy
+    # 6️⃣ Zip API proxy contents correctly
     - name: Zip API proxy folder
       run: |
         API_NAME="demoapi"
@@ -48,35 +47,37 @@ jobs:
         echo "Checking contents of API folder..."
         ls -R "$API_FOLDER"
 
-        echo "Zipping API proxy contents..."
+        echo "Creating zip of API proxy contents (without parent folder)..."
         cd "$API_FOLDER"
-        zip -r "$ZIP_FILE" ./*
+        zip -r "$ZIP_FILE" ./* 
         cd "$GITHUB_WORKSPACE"
         echo "Zipped file created at $ZIP_FILE"
+        ls -lh "$ZIP_FILE"
 
     # 7️⃣ Import API proxy via Apigee CLI
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
-        API_NAME="demoapi"
-        ZIP_FILE="$GITHUB_WORKSPACE/${API_NAME}.zip"
+        ZIP_FILE="$GITHUB_WORKSPACE/demoapi.zip"
 
         echo "Getting access token..."
         TOKEN=$(gcloud auth print-access-token)
 
-        echo "Importing API proxy via apigeecli..."
+        echo "Importing API proxy via Apigee CLI..."
         IMPORT_RESPONSE=$(apigeecli apis import -f "$ZIP_FILE" --org "$ORG" --token "$TOKEN" 2>&1 || true)
 
         echo "Import response:"
         echo "$IMPORT_RESPONSE"
 
-        # Safely extract revision
+        # Extract revision safely
         if echo "$IMPORT_RESPONSE" | grep -q '"revision"'; then
           REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision')
           echo "Imported revision: $REVISION"
           echo "REVISION=$REVISION" >> $GITHUB_ENV
         else
           echo "❌ Import failed! Check API proxy zip contents."
+          echo "Contents of zip:"
+          unzip -l "$ZIP_FILE"
           exit 1
         fi
 
