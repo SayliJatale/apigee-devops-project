@@ -27,7 +27,8 @@ jobs:
     # 4️⃣ Install dependencies
     - name: Install dependencies
       run: |
-        sudo apt-get update && sudo apt-get install -y jq curl unzip zip libxml2-utils
+        sudo apt-get update
+        sudo apt-get install -y jq curl unzip zip
 
     # 5️⃣ Install Apigee CLI
     - name: Install Apigee CLI
@@ -37,52 +38,49 @@ jobs:
         ./download.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6️⃣ Import API proxy via Apigee CLI
-    - name: Import API proxy
+    # 6️⃣ Zip API proxy contents (folder contents only!)
+    - name: Zip API proxy folder
       run: |
-        ORG="${{ secrets.APIGEE_ORG }}"
-        API_NAME="demoapi"
-        API_PARENT="$GITHUB_WORKSPACE/apiproxies"
-        ZIP_FILE="$GITHUB_WORKSPACE/$API_NAME.zip"
-
-        echo "=============================="
-        echo "Processing API proxy: $API_NAME"
-        echo "=============================="
+        API_PARENT="$GITHUB_WORKSPACE/apiproxies/demoapi"
+        ZIP_FILE="$GITHUB_WORKSPACE/demoapi.zip"
 
         echo "Checking contents of API folder..."
-        ls -R "$API_PARENT/$API_NAME"
+        ls -R "$API_PARENT"
 
-        echo "Validating XML files..."
-        find "$API_PARENT/$API_NAME" -name "*.xml" -exec xmllint --noout {} \; || true
-        echo "All XML files are valid."
-
-        echo "Zipping API proxy folder (relative paths!)..."
+        echo "Zipping API proxy folder (contents only, not parent folder)..."
         cd "$API_PARENT"
-        zip -r "$ZIP_FILE" "$API_NAME" > /dev/null
+        zip -r "$ZIP_FILE" . > /dev/null
+        cd "$GITHUB_WORKSPACE"
 
         echo "Contents of zip:"
         unzip -l "$ZIP_FILE"
+
+    # 7️⃣ Import API proxy via Apigee CLI
+    - name: Import API proxy
+      run: |
+        ORG="${{ secrets.APIGEE_ORG }}"
+        ZIP_FILE="$GITHUB_WORKSPACE/demoapi.zip"
 
         echo "Getting access token..."
         TOKEN=$(gcloud auth print-access-token)
 
         echo "Importing API proxy via Apigee CLI..."
-        IMPORT_RAW=$(apigeecli apis import -f "$ZIP_FILE" --org "$ORG" --token "$TOKEN" 2>&1 || true)
-        echo "Raw import output:"
-        echo "$IMPORT_RAW"
+        IMPORT_RESPONSE=$(apigeecli apis import -f "$ZIP_FILE" --org "$ORG" --token "$TOKEN" 2>&1 || true)
 
-        IMPORT_JSON=$(echo "$IMPORT_RAW" | grep -Eo '\{.*\}' || echo "{}")
-        REVISION=$(echo "$IMPORT_JSON" | jq -r '.revision // empty')
+        echo "Import response:"
+        echo "$IMPORT_RESPONSE"
 
+        # Extract revision safely
+        REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision // empty')
         if [ -z "$REVISION" ]; then
-          echo "❌ Import failed! Check API proxy zip contents or raw output above."
+          echo "❌ Import failed! Check API proxy zip contents or raw debug output above."
           exit 1
         fi
 
-        echo "Imported revision: $REVISION"
+        echo "✅ Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 7️⃣ Deploy API proxy via Apigee CLI
+    # 8️⃣ Deploy API proxy via Apigee CLI
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
