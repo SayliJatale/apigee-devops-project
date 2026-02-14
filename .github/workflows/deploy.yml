@@ -24,7 +24,55 @@ jobs:
     - name: Set up gcloud
       uses: google-github-actions/setup-gcloud@v2
 
-    # 4️⃣ Install dependencies: apigeecli & jq safely
+    # 4️⃣ Install apigeecli & jq safely
     - name: Install apigeecli & jq
       run: |
-        #
+        sudo apt-get update && sudo apt-get install -y jq unzip curl
+
+        # Download and install apigeecli
+        curl -L https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
+        chmod +x download.sh
+        ./download.sh
+
+        # Add CLI to PATH safely
+        if [ -n "$GITHUB_PATH" ]; then
+          echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
+        else
+          export PATH="$PATH:$HOME/.apigeecli/bin"
+        fi
+
+        # Verify installation
+        apigeecli version
+
+    # 5️⃣ Import and deploy API proxy
+    - name: Import and deploy API proxy
+      run: |
+        TOKEN=$(gcloud auth print-access-token)
+
+        echo "Uploading API bundle..."
+        IMPORT_OUTPUT=$(apigeecli apis import \
+          -f ./apiproxy \
+          -n demoapi \
+          -o ${{ secrets.APIGEE_ORG }} \
+          --token $TOKEN \
+          --json)
+
+        echo "Import output: $IMPORT_OUTPUT"
+
+        # Extract the revision number
+        REVISION=$(echo $IMPORT_OUTPUT | jq -r '.revision')
+        echo "Revision detected: $REVISION"
+
+        if [ -z "$REVISION" ] || [ "$REVISION" == "null" ]; then
+          echo "Revision detection failed. Exiting."
+          exit 1
+        fi
+
+        echo "Deploying revision $REVISION..."
+        apigeecli apis deploy \
+          -n demoapi \
+          -e ${{ secrets.APIGEE_ENV }} \
+          -o ${{ secrets.APIGEE_ORG }} \
+          -v $REVISION \
+          --token $TOKEN \
+          --ovr
