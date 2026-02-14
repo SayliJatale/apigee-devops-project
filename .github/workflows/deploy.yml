@@ -41,21 +41,21 @@ jobs:
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
-        API_NAME="demoapi"
-        API_FOLDER="$GITHUB_WORKSPACE/$API_NAME"
+        PARENT_FOLDER="$GITHUB_WORKSPACE/apiproxies"  # contains subfolder demoapi
 
-        echo "Checking contents of API folder..."
-        ls -R "$API_FOLDER"
+        echo "Checking contents of API parent folder..."
+        ls -R "$PARENT_FOLDER"
 
         echo "Getting access token..."
         TOKEN=$(gcloud auth print-access-token)
 
         echo "Importing API proxy via apigeecli..."
-        IMPORT_RESPONSE=$(apigeecli apis import -f "$API_FOLDER" --org "$ORG" --token "$TOKEN" 2>&1 || true)
+        IMPORT_RESPONSE=$(apigeecli apis import -f "$PARENT_FOLDER" --org "$ORG" --token "$TOKEN" 2>&1 || true)
 
         echo "Import response:"
         echo "$IMPORT_RESPONSE"
 
+        # Extract revision safely
         REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision // empty')
         if [ -z "$REVISION" ]; then
           echo "❌ Error: Failed to detect revision from import. Check proxy bundle contents."
