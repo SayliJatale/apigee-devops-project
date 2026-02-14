@@ -1,4 +1,4 @@
-name: Apigee Deploy
+name: Deploy Apigee Proxy
 
 on:
   push:
@@ -10,20 +10,49 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Setup gcloud
-        uses: google-github-actions/setup-gcloud@v2
-        with:
-          project_id: ${{ secrets.GCP_PROJECT }}
-          service_account_key: ${{ secrets.GCP_SA_KEY }}
-          export_default_credentials: true
+    # -----------------------------
+    # Authenticate to Google Cloud
+    # -----------------------------
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: '${{ secrets.GCP_SA_KEY }}'
 
-      - name: Install apigeecli
-        run: |
-          curl -L https://github.com/apigee/apigeecli/releases/latest/download/apigeecli_Linux_x86_64.tar.gz -o apigeecli.tar.gz
-          tar -xvzf apigeecli.tar.gz
-          chmod +x apigeecli
-          sudo mv apigeecli /usr/local/bin/
-          apigeecli version
+    - name: Setup gcloud
+      uses: google-github-actions/setup-gcloud@v2
+
+    # -----------------------------
+    # Install apigeecli (official)
+    # -----------------------------
+    - name: Install apigeecli
+      run: |
+        curl -L https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
+        chmod +x download.sh
+        ./download.sh
+        sudo mv apigeecli_*_Linux_x86_64/apigeecli /usr/local/bin/apigeecli
+        apigeecli version
+
+    # -----------------------------
+    # Deploy Proxy to Apigee
+    # -----------------------------
+    - name: Deploy proxy to Apigee
+      run: |
+        TOKEN=$(gcloud auth print-access-token)
+
+        apigeecli apis create bundle \
+          -f ./apiproxy \
+          -n demoapi \
+          --org ${{ secrets.APIGEE_ORG }} \
+          --token "$TOKEN"
+
+        REV=$(apigeecli apis list --org ${{ secrets.APIGEE_ORG }} --token "$TOKEN" | grep demoapi | awk '{print $2}' | tail -1)
+
+        apigeecli apis deploy \
+          --name demoapi \
+          --rev "$REV" \
+          --org ${{ secrets.APIGEE_ORG }} \
+          --env ${{ secrets.APIGEE_ENV }} \
+          --token "$TOKEN"
