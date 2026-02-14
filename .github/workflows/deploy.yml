@@ -27,8 +27,7 @@ jobs:
     # 4️⃣ Install dependencies
     - name: Install dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y jq curl unzip zip libxml2-utils
+        sudo apt-get update && sudo apt-get install -y jq curl unzip zip libxml2-utils
 
     # 5️⃣ Install Apigee CLI
     - name: Install Apigee CLI
@@ -38,13 +37,13 @@ jobs:
         ./download.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6️⃣ Validate and Import API proxy
+    # 6️⃣ Import API proxy via Apigee CLI
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
         API_NAME="demoapi"
         API_PARENT="$GITHUB_WORKSPACE/apiproxies"
-        ZIP_FILE="$GITHUB_WORKSPACE/demoapi.zip"
+        ZIP_FILE="$GITHUB_WORKSPACE/$API_NAME.zip"
 
         echo "=============================="
         echo "Processing API proxy: $API_NAME"
@@ -59,7 +58,7 @@ jobs:
 
         echo "Zipping API proxy folder (relative paths!)..."
         cd "$API_PARENT"
-        zip -r "$ZIP_FILE" "$API_NAME/*" > /dev/null
+        zip -r "$ZIP_FILE" "$API_NAME" > /dev/null
 
         echo "Contents of zip:"
         unzip -l "$ZIP_FILE"
@@ -83,7 +82,7 @@ jobs:
         echo "Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 7️⃣ Deploy API proxy
+    # 7️⃣ Deploy API proxy via Apigee CLI
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
@@ -96,12 +95,7 @@ jobs:
         fi
 
         echo "Deploying revision $REVISION to environment $ENV..."
-        DEPLOY_RESPONSE=$(apigeecli apis deploy \
-          --name "$API_NAME" \
-          --rev "$REVISION" \
-          --env "$ENV" \
-          --org "$ORG" \
-          --token "$(gcloud auth print-access-token)" 2>&1 || true)
+        DEPLOY_RESPONSE=$(apigeecli apis deploy --name "$API_NAME" --rev "$REVISION" --env "$ENV" --org "$ORG" --token "$(gcloud auth print-access-token)" 2>&1 || true)
 
         echo "Deploy response:"
         echo "$DEPLOY_RESPONSE"
