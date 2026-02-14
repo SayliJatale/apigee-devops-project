@@ -21,11 +21,13 @@ jobs:
       uses: google-github-actions/setup-gcloud@v2
 
     - name: Install apigeecli
-      run: |
-        curl -L https://github.com/apigee/apigeecli/releases/latest/download/apigeecli_linux_64.zip -o apigeecli.zip
-        unzip apigeecli.zip
-        chmod +x apigeecli
-        sudo mv apigeecli /usr/local/bin/
+  run: |
+    curl -L https://github.com/apigee/apigeecli/releases/latest/download/apigeecli_Linux_x86_64.tar.gz -o apigeecli.tar.gz
+    tar -xvzf apigeecli.tar.gz
+    chmod +x apigeecli
+    sudo mv apigeecli /usr/local/bin/
+    apigeecli version
+
 
     - name: Deploy proxy to Apigee
       run: |
