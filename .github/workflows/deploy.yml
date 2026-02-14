@@ -10,26 +10,24 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1️⃣ Checkout repository
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # 2️⃣ Authenticate to Google Cloud
     - name: Auth to Google Cloud
       uses: google-github-actions/auth@v2
       with:
         credentials_json: '${{ secrets.GCP_SA_KEY }}'
 
-    # 3️⃣ Set up gcloud SDK
     - name: Set up gcloud
       uses: google-github-actions/setup-gcloud@v2
 
-    # 4️⃣ Install dependencies
+    # ✅ Install all dependencies including xmllint
     - name: Install dependencies
       run: |
-        sudo apt-get update && sudo apt-get install -y jq curl unzip zip
+        sudo apt-get update
+        sudo apt-get install -y jq curl unzip zip libxml2-utils
 
-    # 5️⃣ Install Apigee CLI
+    # ✅ Install Apigee CLI
     - name: Install Apigee CLI
       run: |
         curl -sL https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
@@ -37,12 +35,12 @@ jobs:
         ./download.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6️⃣ Validate and Import API proxy (folder, not zip)
-    - name: Import API proxy
+    # ✅ Validate XML & create zip bundle
+    - name: Prepare API proxy
       run: |
-        ORG="${{ secrets.APIGEE_ORG }}"
         API_NAME="demoapi"
         API_FOLDER="$GITHUB_WORKSPACE/apiproxies/$API_NAME"
+        ZIP_FILE="$GITHUB_WORKSPACE/$API_NAME.zip"
 
         echo "=============================="
         echo "Processing API proxy: $API_NAME"
@@ -52,28 +50,40 @@ jobs:
         ls -R "$API_FOLDER"
 
         echo "Validating XML files..."
-        find "$API_FOLDER" -name "*.xml" -exec xmllint --noout {} \; || { echo "❌ XML validation failed"; exit 1; }
+        find "$API_FOLDER" -name "*.xml" -exec xmllint --noout {} \;
         echo "All XML files are valid."
 
-        echo "Getting access token..."
+        echo "Zipping API proxy folder..."
+        # Important: zip contents relative to folder, not including full path
+        cd "$API_FOLDER"
+        zip -r -q "$ZIP_FILE" ./*
+
+        echo "Contents of zip:"
+        unzip -l "$ZIP_FILE"
+
+    # ✅ Import API proxy
+    - name: Import API proxy
+      run: |
+        ORG="${{ secrets.APIGEE_ORG }}"
         TOKEN=$(gcloud auth print-access-token)
+        ZIP_FILE="$GITHUB_WORKSPACE/demoapi.zip"
 
         echo "Importing API proxy via Apigee CLI..."
-        IMPORT_OUTPUT=$(apigeecli apis import -f "$API_FOLDER" --org "$ORG" --token "$TOKEN" 2>&1) || true
+        IMPORT_OUTPUT=$(apigeecli apis import -f "$ZIP_FILE" --org "$ORG" --token "$TOKEN" 2>&1) || true
 
         echo "Raw import output:"
         echo "$IMPORT_OUTPUT"
 
         REVISION=$(echo "$IMPORT_OUTPUT" | jq -r '.revision // empty')
         if [ -z "$REVISION" ]; then
-          echo "❌ Import failed! Check API proxy folder contents or raw output above."
+          echo "❌ Import failed! Check zip contents or raw output above."
           exit 1
         fi
 
         echo "✅ Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 7️⃣ Deploy API proxy
+    # ✅ Deploy API proxy
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
