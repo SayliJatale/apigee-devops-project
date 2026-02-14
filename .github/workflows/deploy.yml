@@ -24,10 +24,15 @@ jobs:
     - name: Set up gcloud
       uses: google-github-actions/setup-gcloud@v2
 
-    # 4️⃣ Install dependencies
-    - name: Install dependencies
+    # 4️⃣ Install dependencies + apigeecli
+    - name: Install dependencies and apigeecli
       run: |
         sudo apt-get update && sudo apt-get install -y jq unzip zip curl
+        curl -sL https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
+        chmod +x download.sh
+        ./download.sh
+        # Persist PATH across steps
+        echo "PATH=$HOME/.apigeecli/bin:$PATH" >> $GITHUB_ENV
 
     # 5️⃣ Prepare proxy bundle
     - name: Prepare proxy bundle
@@ -36,34 +41,42 @@ jobs:
           echo "Zipping proxy folder..."
           zip -r apiproxy.zip ./apiproxy
         fi
-        ls -l ./apiproxy.zip
+        echo "Contents of proxy bundle:"
+        unzip -l ./apiproxy.zip
 
-    # 6️⃣ Import API proxy via apigeecli
+    # 6️⃣ Validate proxy bundle
+    - name: Validate proxy bundle
+      run: |
+        ORG="${{ secrets.APIGEE_ORG }}"
+        echo "Validating API proxy bundle..."
+        VALIDATE_OUTPUT=$(apigeecli apis validate -f ./apiproxy.zip -o $ORG --default-token 2>&1 || true)
+        echo "$VALIDATE_OUTPUT"
+        if echo "$VALIDATE_OUTPUT" | grep -i "error"; then
+          echo "❌ Proxy bundle validation failed"
+          exit 1
+        fi
+        echo "✅ Proxy bundle is valid"
+
+    # 7️⃣ Import API proxy via apigeecli
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
-        echo "Importing API proxy via apigeecli..."
-        
-        # Debug: show apiproxy contents
-        echo "Contents of apiproxy folder:"
-        ls -R ./apiproxy
-
-        # Run import
+        API_NAME="demoapi"
+        echo "Importing API proxy..."
         IMPORT_RESPONSE=$(apigeecli apis import -f ./apiproxy.zip -o $ORG --default-token 2>&1 || true)
         echo "Raw import response:"
         echo "$IMPORT_RESPONSE"
 
-        # Extract revision
         REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision // empty')
         if [ -z "$REVISION" ]; then
-          echo "❌ Failed to detect revision from import. Check proxy bundle and logs above."
+          echo "❌ Failed to detect revision from import."
           exit 1
         fi
 
         echo "Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 7️⃣ Deploy API proxy
+    # 8️⃣ Deploy API proxy via apigeecli
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
@@ -80,8 +93,8 @@ jobs:
         echo "Deployment response:"
         echo "$DEPLOY_RESPONSE"
 
-        if echo "$DEPLOY_RESPONSE" | grep -q "error"; then
-          echo "❌ Deployment failed. Check logs above."
+        if echo "$DEPLOY_RESPONSE" | grep -i "error"; then
+          echo "❌ Deployment failed."
           exit 1
         fi
 
