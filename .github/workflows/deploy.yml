@@ -75,7 +75,7 @@ jobs:
         echo "GCP_PROJECT=${{ secrets.GCP_PROJECT }}"
         ls -l ./apiproxy
 
-    # 8️⃣ Deploy API proxy using fully-qualified revision
+    # 8️⃣ Deploy API proxy using fully-qualified revision path
     - name: Deploy API proxy
       run: |
         PROJECT="${{ secrets.GCP_PROJECT }}"
