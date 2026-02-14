@@ -35,16 +35,15 @@ jobs:
         curl -sL https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
         chmod +x download.sh
         ./download.sh
-        export PATH=$PATH:$HOME/.apigeecli/bin
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6️⃣ Zip API proxy and import via Apigee CLI
+    # 6️⃣ Import API proxy (zip method)
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
         API_NAME="demoapi"
         API_FOLDER="$GITHUB_WORKSPACE/apiproxies/$API_NAME"
-        ZIP_FILE="$GITHUB_WORKSPACE/$API_NAME.zip"
+        ZIP_FILE="$GITHUB_WORKSPACE/${API_NAME}.zip"
 
         echo "Checking contents of API folder..."
         ls -R "$API_FOLDER"
@@ -72,7 +71,7 @@ jobs:
         echo "Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 7️⃣ Deploy API proxy via Apigee CLI
+    # 7️⃣ Deploy API proxy
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
