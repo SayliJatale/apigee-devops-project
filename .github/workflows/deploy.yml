@@ -10,22 +10,27 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    # 1️⃣ Checkout repository
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    # 2️⃣ Authenticate to Google Cloud
     - name: Auth to Google Cloud
       uses: google-github-actions/auth@v2
       with:
         credentials_json: '${{ secrets.GCP_SA_KEY }}'
 
+    # 3️⃣ Set up gcloud SDK
     - name: Set up gcloud
       uses: google-github-actions/setup-gcloud@v2
 
+    # 4️⃣ Install dependencies
     - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y jq curl unzip zip libxml2-utils
 
+    # 5️⃣ Install Apigee CLI
     - name: Install Apigee CLI
       run: |
         curl -sL https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
@@ -33,26 +38,26 @@ jobs:
         ./download.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # Validate XMLs
+    # 6️⃣ Validate API proxy XML files
     - name: Validate API proxy XML
       run: |
         API_FOLDER="$GITHUB_WORKSPACE/apiproxies/demoapi"
-        echo "Validating XML files..."
+        echo "Validating XML files in $API_FOLDER..."
         find "$API_FOLDER" -name "*.xml" -exec xmllint --noout {} \;
 
-    # Zip the API proxy
+    # 7️⃣ Zip API proxy contents correctly
     - name: Zip API proxy
       run: |
         API_FOLDER="$GITHUB_WORKSPACE/apiproxies/demoapi"
         ZIP_FILE="$GITHUB_WORKSPACE/demoapi.zip"
-        echo "Zipping API proxy..."
-        cd "$API_FOLDER/.."
-        zip -r "$ZIP_FILE" "$(basename "$API_FOLDER")"
+        echo "Zipping API proxy contents..."
+        cd "$API_FOLDER"
+        zip -r "$ZIP_FILE" .   # ⚡ key fix: zip contents, not folder
         cd "$GITHUB_WORKSPACE"
         echo "Contents of ZIP:"
         unzip -l "$ZIP_FILE"
 
-    # ✅ FIXED: Import via ZIP, not folder
+    # 8️⃣ Import API proxy via Apigee CLI
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
@@ -74,10 +79,10 @@ jobs:
           exit 1
         fi
 
-        echo "✅ Imported revision: $REVISION"
+        echo "Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # Deploy the imported revision
+    # 9️⃣ Deploy API proxy via Apigee CLI
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
