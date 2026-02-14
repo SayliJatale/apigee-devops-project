@@ -27,14 +27,17 @@ jobs:
     # -----------------------------
     # Install apigeecli (official)
     # -----------------------------
-    - name: Install apigeecli
-      run: |
-        curl -L https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
-        chmod +x download.sh
-        ./download.sh
-        sudo mv apigeecli_*_Linux_x86_64/apigeecli /usr/local/bin/apigeecli
-        apigeecli version
+   - name: Install apigeecli
+  run: |
+    curl -L https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
+    chmod +x download.sh
+    ./download.sh
 
+    # add to path
+    export PATH=$PATH:$HOME/.apigeecli/bin
+    echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
+
+    apigeecli version
     # -----------------------------
     # Deploy Proxy to Apigee
     # -----------------------------
