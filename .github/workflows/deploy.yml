@@ -27,7 +27,7 @@ jobs:
     # 4️⃣ Install dependencies
     - name: Install dependencies
       run: |
-        sudo apt-get update && sudo apt-get install -y jq curl unzip
+        sudo apt-get update && sudo apt-get install -y jq curl unzip zip
 
     # 5️⃣ Install Apigee CLI
     - name: Install Apigee CLI
@@ -37,11 +37,12 @@ jobs:
         ./download.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6️⃣ Validate and Import API proxy
-    - name: Validate & Import API proxy
+    # 6️⃣ Prepare & Import API proxy
+    - name: Prepare & Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
         API_FOLDER="$GITHUB_WORKSPACE/apiproxy"
+        API_ZIP="$GITHUB_WORKSPACE/apiproxy.zip"
 
         echo "Checking contents of API folder..."
         if [ ! -d "$API_FOLDER" ]; then
@@ -52,17 +53,22 @@ jobs:
         ls -R "$API_FOLDER"
 
         echo "Validating API proxy bundle..."
-        # Validate basic structure: apiproxy.xml must exist
         if [ ! -f "$API_FOLDER/apiproxy.xml" ]; then
           echo "❌ Error: apiproxy.xml not found in $API_FOLDER"
           exit 1
         fi
 
+        echo "Zipping proxy folder..."
+        if [ -f "$API_ZIP" ]; then
+          rm "$API_ZIP"
+        fi
+        zip -r "$API_ZIP" "$API_FOLDER"
+
         echo "Getting access token..."
         TOKEN=$(gcloud auth print-access-token)
 
         echo "Importing API proxy via apigeecli..."
-        IMPORT_RESPONSE=$(apigeecli apis import -f "$API_FOLDER" --org "$ORG" --token "$TOKEN" 2>&1 || true)
+        IMPORT_RESPONSE=$(apigeecli apis import -f "$API_ZIP" --org "$ORG" --token "$TOKEN" 2>&1 || true)
 
         echo "Import response:"
         echo "$IMPORT_RESPONSE"
@@ -70,7 +76,7 @@ jobs:
         # Extract revision safely
         REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision // empty')
         if [ -z "$REVISION" ]; then
-          echo "❌ Error: Failed to detect revision from import. Check proxy folder contents."
+          echo "❌ Error: Failed to detect revision from import. Check proxy bundle contents."
           exit 1
         fi
 
