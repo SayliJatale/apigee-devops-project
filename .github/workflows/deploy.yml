@@ -14,40 +14,30 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # 2️⃣ Authenticate to Google Cloud using service account JSON
-    - name: Authenticate to GCP
+    # 2️⃣ Authenticate to Google Cloud
+    - name: Auth to Google Cloud
       uses: google-github-actions/auth@v2
       with:
         credentials_json: '${{ secrets.GCP_SA_KEY }}'
 
     # 3️⃣ Set up gcloud SDK
-    - name: Setup gcloud
+    - name: Set up gcloud
       uses: google-github-actions/setup-gcloud@v2
 
     # 4️⃣ Install dependencies
     - name: Install dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y jq curl zip unzip
+        sudo apt-get update && sudo apt-get install -y jq curl unzip
 
-    # 5️⃣ Prepare API proxy bundle
-    - name: Zip API proxy
-      run: |
-        if [ ! -f "./apiproxy.zip" ]; then
-          echo "Zipping API proxy folder..."
-          zip -r apiproxy.zip ./apiproxy
-        fi
-
-    # 6️⃣ Download and setup apigeecli v2.17
+    # 5️⃣ Install apigeecli
     - name: Install apigeecli
       run: |
         curl -sL https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
         chmod +x download.sh
         ./download.sh
-        # Add apigeecli to PATH permanently for all subsequent steps
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 7️⃣ Import API proxy (validates automatically)
+    # 6️⃣ Import API proxy directly from folder
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
@@ -56,11 +46,11 @@ jobs:
         echo "Getting access token..."
         TOKEN=$(gcloud auth print-access-token)
 
-        echo "Importing API bundle..."
-        IMPORT_RESPONSE=$(apigeecli apis import -f ./apiproxy.zip -o "$ORG" -t "$TOKEN" --name "$API_NAME")
+        echo "Importing API proxy via apigeecli..."
+        IMPORT_RESPONSE=$(apigeecli apis import -f ./apiproxy -o "$ORG" -t "$TOKEN")
         echo "$IMPORT_RESPONSE"
 
-        # Extract revision number from import response
+        # Extract revision number
         REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision')
         if [ -z "$REVISION" ] || [ "$REVISION" == "null" ]; then
           echo "❌ Failed to detect revision from import. Check proxy bundle for errors."
@@ -70,25 +60,19 @@ jobs:
         echo "✅ Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 8️⃣ Deploy API proxy via REST API
+    # 7️⃣ Deploy API proxy
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
         ENV="${{ secrets.APIGEE_ENV }}"
         API_NAME="demoapi"
 
-        echo "Deploying revision $REVISION to environment $ENV..."
-        TOKEN=$(gcloud auth print-access-token)
-
-        DEPLOY_RESPONSE=$(curl -s -X POST \
-          -H "Authorization: Bearer $TOKEN" \
-          "https://apigee.googleapis.com/v1/organizations/$ORG/environments/$ENV/apis/$API_NAME/revisions/$REVISION/deployments")
-
-        echo "Deploy response: $DEPLOY_RESPONSE"
-
-        if echo "$DEPLOY_RESPONSE" | jq -e '.error' >/dev/null; then
-          echo "❌ Deployment failed! Ensure the service account has proper roles and the proxy bundle is valid."
+        if [ -z "$REVISION" ] || [ "$REVISION" == "null" ]; then
+          echo "❌ REVISION not set. Cannot deploy."
           exit 1
         fi
+
+        echo "Deploying revision $REVISION to environment $ENV..."
+        apigeecli apis deploy -n "$API_NAME" -e "$ENV" -o "$ORG" -v "$REVISION" -t "$(gcloud auth print-access-token)" --ovr
 
         echo "✅ Deployment complete!"
