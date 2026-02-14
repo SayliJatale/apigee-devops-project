@@ -38,7 +38,7 @@ jobs:
         ./download.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6️⃣ Import API proxy via Apigee CLI (zip with parent folder!)
+    # 6️⃣ Import API proxy via Apigee CLI (zip **without parent folder**!)
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
@@ -53,9 +53,9 @@ jobs:
         find "$API_FOLDER" -name "*.xml" -exec xmllint --noout {} \;
         echo "All XML files are valid."
 
-        echo "Zipping API proxy folder (include parent folder in zip)..."
-        cd "$GITHUB_WORKSPACE/apiproxies"
-        zip -r "$ZIP_FILE" "$API_NAME"
+        echo "Zipping API proxy folder contents (no parent folder)..."
+        cd "$API_FOLDER"
+        zip -r "$ZIP_FILE" *        # ✅ note the '*', no extra folder
         cd "$GITHUB_WORKSPACE"
 
         echo "Contents of zip:"
