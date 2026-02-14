@@ -35,4 +35,42 @@ jobs:
         ./download.sh
 
         # Add CLI to PATH for this step and subsequent steps
-        ex
+        export PATH="$PATH:$HOME/.apigeecli/bin"
+
+        # Verify installation
+        apigeecli version
+
+    # 5️⃣ Import and deploy API proxy
+    - name: Import and deploy API proxy
+      run: |
+        # Get GCP access token
+        TOKEN=$(gcloud auth print-access-token)
+
+        echo "Uploading API bundle..."
+        IMPORT_OUTPUT=$(apigeecli apis import \
+          -f ./apiproxy \
+          -n demoapi \
+          -o ${{ secrets.APIGEE_ORG }} \
+          --token $TOKEN \
+          --json)
+
+        echo "Import output: $IMPORT_OUTPUT"
+
+        # Extract the latest revision
+        REVISION=$(echo $IMPORT_OUTPUT | jq -r '.revision')
+        echo "Revision detected: $REVISION"
+
+        if [ -z "$REVISION" ] || [ "$REVISION" == "null" ]; then
+          echo "Revision detection failed. Exiting."
+          exit 1
+        fi
+
+        # Deploy the imported revision
+        echo "Deploying revision $REVISION..."
+        apigeecli apis deploy \
+          -n demoapi \
+          -e ${{ secrets.APIGEE_ENV }} \
+          -o ${{ secrets.APIGEE_ORG }} \
+          -v $REVISION \
+          --token $TOKEN \
+          --ovr
