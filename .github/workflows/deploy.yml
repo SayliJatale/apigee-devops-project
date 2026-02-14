@@ -72,11 +72,13 @@ jobs:
         echo "REVISION=$REVISION"
         echo "APIGEE_ORG=${{ secrets.APIGEE_ORG }}"
         echo "APIGEE_ENV=${{ secrets.APIGEE_ENV }}"
+        echo "GCP_PROJECT=${{ secrets.GCP_PROJECT }}"
         ls -l ./apiproxy
 
-    # 8️⃣ Deploy API proxy
+    # 8️⃣ Deploy API proxy using fully-qualified revision
     - name: Deploy API proxy
       run: |
+        PROJECT="${{ secrets.GCP_PROJECT }}"
         ORG="${{ secrets.APIGEE_ORG }}"
         ENV="${{ secrets.APIGEE_ENV }}"
         API_NAME="demoapi"
@@ -87,10 +89,10 @@ jobs:
         fi
 
         echo "Deploying revision $REVISION to environment $ENV..."
-        gcloud apigee apis deploy "$REVISION" \
-          --api="$API_NAME" \
-          --environment="$ENV" \
-          --organization="$ORG" \
+        gcloud apigee apis deploy \
+          projects/$PROJECT/locations/global/apis/$API_NAME/revisions/$REVISION \
+          --environment=$ENV \
+          --organization=$ORG \
           --override
 
         echo "Deployment complete!"
