@@ -27,8 +27,7 @@ jobs:
     # 4️⃣ Install dependencies
     - name: Install dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y jq curl unzip zip
+        sudo apt-get update && sudo apt-get install -y jq curl unzip zip
 
     # 5️⃣ Install Apigee CLI
     - name: Install Apigee CLI
@@ -38,8 +37,8 @@ jobs:
         ./download.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6️⃣ Zip API proxy contents (folder contents only!)
-    - name: Zip API proxy folder
+    # 6️⃣ Validate and Zip API proxy (contents only)
+    - name: Validate & Zip API proxy
       run: |
         API_PARENT="$GITHUB_WORKSPACE/apiproxies/demoapi"
         ZIP_FILE="$GITHUB_WORKSPACE/demoapi.zip"
@@ -47,16 +46,20 @@ jobs:
         echo "Checking contents of API folder..."
         ls -R "$API_PARENT"
 
-        echo "Zipping API proxy folder (contents only, not parent folder)..."
+        echo "Validating XML files..."
+        find "$API_PARENT" -name "*.xml" -exec xmllint --noout {} \;
+        echo "All XML files are valid."
+
+        echo "Zipping API proxy folder (contents only, root = proxy files)..."
         cd "$API_PARENT"
-        zip -r "$ZIP_FILE" . > /dev/null
+        zip -r "$ZIP_FILE" ./* > /dev/null
         cd "$GITHUB_WORKSPACE"
 
         echo "Contents of zip:"
         unzip -l "$ZIP_FILE"
 
-    # 7️⃣ Import API proxy via Apigee CLI
-    - name: Import API proxy
+    # 7️⃣ Import API proxy
+    - name: Import API proxy via Apigee CLI
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
         ZIP_FILE="$GITHUB_WORKSPACE/demoapi.zip"
@@ -65,23 +68,21 @@ jobs:
         TOKEN=$(gcloud auth print-access-token)
 
         echo "Importing API proxy via Apigee CLI..."
-        IMPORT_RESPONSE=$(apigeecli apis import -f "$ZIP_FILE" --org "$ORG" --token "$TOKEN" 2>&1 || true)
-
-        echo "Import response:"
-        echo "$IMPORT_RESPONSE"
+        IMPORT_OUTPUT=$(apigeecli apis import -f "$ZIP_FILE" --org "$ORG" --token "$TOKEN" 2>&1 || true)
+        echo "$IMPORT_OUTPUT"
 
         # Extract revision safely
-        REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision // empty')
+        REVISION=$(echo "$IMPORT_OUTPUT" | jq -r '.revision // empty')
         if [ -z "$REVISION" ]; then
-          echo "❌ Import failed! Check API proxy zip contents or raw debug output above."
+          echo "❌ Import failed! Check API proxy zip contents or raw output above."
           exit 1
         fi
 
-        echo "✅ Imported revision: $REVISION"
+        echo "Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 8️⃣ Deploy API proxy via Apigee CLI
-    - name: Deploy API proxy
+    # 8️⃣ Deploy API proxy
+    - name: Deploy API proxy via Apigee CLI
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
         ENV="${{ secrets.APIGEE_ENV }}"
@@ -93,12 +94,10 @@ jobs:
         fi
 
         echo "Deploying revision $REVISION to environment $ENV..."
-        DEPLOY_RESPONSE=$(apigeecli apis deploy --name "$API_NAME" --rev "$REVISION" --env "$ENV" --org "$ORG" --token "$(gcloud auth print-access-token)" 2>&1 || true)
+        DEPLOY_OUTPUT=$(apigeecli apis deploy --name "$API_NAME" --rev "$REVISION" --env "$ENV" --org "$ORG" --token "$(gcloud auth print-access-token)" 2>&1 || true)
+        echo "$DEPLOY_OUTPUT"
 
-        echo "Deploy response:"
-        echo "$DEPLOY_RESPONSE"
-
-        if echo "$DEPLOY_RESPONSE" | grep -qi "error"; then
+        if echo "$DEPLOY_OUTPUT" | grep -qi "error"; then
           echo "❌ Deployment failed!"
           exit 1
         fi
