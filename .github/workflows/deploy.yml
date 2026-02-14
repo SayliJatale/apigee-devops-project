@@ -11,15 +11,10 @@ jobs:
 
     steps:
 
-    # -----------------------------
-    # Checkout repo
-    # -----------------------------
     - name: Checkout code
       uses: actions/checkout@v4
 
-    # -----------------------------
-    # Authenticate to Google Cloud
-    # -----------------------------
+    # Authenticate to GCP
     - name: Authenticate to Google Cloud
       uses: google-github-actions/auth@v2
       with:
@@ -28,41 +23,36 @@ jobs:
     - name: Setup gcloud
       uses: google-github-actions/setup-gcloud@v2
 
-    # -----------------------------
-    # Install apigeecli (FIXED)
-    # -----------------------------
+    # Install apigeecli
     - name: Install apigeecli
       run: |
         curl -L https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
         chmod +x download.sh
         ./download.sh
 
-        # Add apigeecli to PATH
         export PATH=$PATH:$HOME/.apigeecli/bin
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-        apigeecli version
+        apigeecli --version
 
-    # -----------------------------
-    # Deploy proxy bundle
-    # -----------------------------
+    # Deploy proxy
     - name: Deploy proxy to Apigee
       run: |
         TOKEN=$(gcloud auth print-access-token)
 
-        echo "Creating API bundle..."
+        echo "Uploading bundle..."
         apigeecli apis create bundle \
           -f ./apiproxy \
           -n demoapi \
           --org ${{ secrets.APIGEE_ORG }} \
           --token "$TOKEN"
 
-        echo "Fetching latest revision..."
+        echo "Getting revision..."
         REV=$(apigeecli apis list \
           --org ${{ secrets.APIGEE_ORG }} \
           --token "$TOKEN" | grep demoapi | awk '{print $2}' | tail -1)
 
-        echo "Deploying revision $REV ..."
+        echo "Deploying revision $REV"
         apigeecli apis deploy \
           --name demoapi \
           --rev "$REV" \
