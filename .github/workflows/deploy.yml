@@ -10,42 +10,25 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    # 1️⃣ Checkout repository
     - name: Checkout code
       uses: actions/checkout@v4
 
-    # 🔐 Authenticate to Google Cloud
+    # 2️⃣ Authenticate to Google Cloud
     - name: Auth to Google Cloud
       uses: google-github-actions/auth@v2
       with:
         credentials_json: '${{ secrets.GCP_SA_KEY }}'
 
+    # 3️⃣ Set up gcloud
     - name: Set up gcloud
       uses: google-github-actions/setup-gcloud@v2
 
-    # 🚀 Install apigeecli
-    - name: Install apigeecli
+    # 4️⃣ Install dependencies: apigeecli & jq
+    - name: Install apigeecli & jq
       run: |
+        sudo apt-get update && sudo apt-get install -y jq
         curl -L https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
         chmod +x download.sh
         ./download.sh
-
-        echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
-
-    # 🚀 Deploy proxy
-    - name: Deploy to Apigee
-      run: |
-        TOKEN=$(gcloud auth print-access-token)
-
-        echo "Uploading bundle..."
-        apigeecli apis create bundle \
-          -f ./apiproxy \
-          -n demoapi \
-          -o ${{ secrets.APIGEE_ORG }} \
-          -t $TOKEN
-
-        echo "Deploying latest revision..."
-        apigeecli apis deploy \
-          -n demoapi \
-          -e ${{ secrets.APIGEE_ENV }} \
-          -o ${{ secrets.APIGEE_ORG }} \
-          -t $TOKEN
+        echo "$HOME/.apigeecli/bin" >> $GIT
