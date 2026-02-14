@@ -54,24 +54,29 @@ jobs:
 
         echo "Import response: $IMPORT_RESPONSE"
 
-        # Check for errors
-        SUCCESS=$(echo "$IMPORT_RESPONSE" | jq -r '.name // empty')
-        if [ -z "$SUCCESS" ]; then
-          echo "Error: API proxy import failed."
+        # Extract revision number (positional)
+        REVISION=$(echo $IMPORT_RESPONSE | jq -r '.revision')
+        if [ -z "$REVISION" ] || [ "$REVISION" == "null" ]; then
+          echo "Error: Failed to detect revision from import."
           exit 1
         fi
 
-        echo "API proxy imported successfully."
+        echo "Imported revision: $REVISION"
+        echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 7️⃣ Deploy the latest revision (no --revision needed)
+    # 7️⃣ Deploy API proxy using positional revision
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
         ENV="${{ secrets.APIGEE_ENV }}"
-        API_NAME="demoapi"
 
-        echo "Deploying API proxy $API_NAME to environment $ENV..."
-        gcloud apigee apis deploy "$API_NAME" \
+        if [ -z "$REVISION" ] || [ "$REVISION" == "null" ]; then
+          echo "Error: REVISION is not set. Cannot deploy."
+          exit 1
+        fi
+
+        echo "Deploying revision $REVISION to environment $ENV..."
+        gcloud apigee apis deploy "$REVISION" \
           --environment="$ENV" \
           --organization="$ORG"
 
