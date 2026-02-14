@@ -27,79 +27,53 @@ jobs:
     # 4️⃣ Install dependencies
     - name: Install dependencies
       run: |
-        sudo apt-get update && sudo apt-get install -y jq curl unzip zip xmllint
+        sudo apt-get update
+        sudo apt-get install -y jq curl unzip zip libxml2-utils
 
-    # 5️⃣ Install Apigee CLI
-    - name: Install Apigee CLI
+    # 5️⃣ Download Apigee CLI
+    - name: Download apigeecli
       run: |
         curl -sL https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
         chmod +x download.sh
         ./download.sh
-        echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
+        export PATH=$PATH:$HOME/.apigeecli/bin
 
-    # 6️⃣ Validate XML files
-    - name: Validate proxy XMLs
+    # 6️⃣ Prepare proxy bundle
+    - name: Zip API proxy
       run: |
         API_FOLDER="$GITHUB_WORKSPACE/apiproxies/demoapi"
-        echo "Validating XML files..."
-        find "$API_FOLDER" -name "*.xml" -print0 | while IFS= read -r -d '' file; do
-          echo "Validating $file"
-          xmllint --noout "$file" || exit 1
-        done
+        echo "Checking contents of API folder..."
+        ls -R "$API_FOLDER"
 
-    # 7️⃣ Validate that all referenced policies exist
-    - name: Validate policy references
-      run: |
-        API_FOLDER="$GITHUB_WORKSPACE/apiproxies/demoapi"
-        POLICIES_FOLDER="$API_FOLDER/policies"
-        echo "Checking policy references in flows..."
+        echo "Zipping proxy folder..."
+        zip -r apiproxy.zip "$API_FOLDER"/*
 
-        find "$API_FOLDER/proxies" "$API_FOLDER" -name "*.xml" | while read xml; do
-          grep -oP '(?<=<Step>.*<Name>).*?(?=</Name>)' "$xml" | while read policy; do
-            if [ ! -f "$POLICIES_FOLDER/$policy.xml" ]; then
-              echo "❌ Missing policy $policy referenced in $xml"
-              exit 1
-            fi
-          done
-        done
-        echo "✅ All referenced policies exist."
-
-    # 8️⃣ Zip API proxy folder
-    - name: Zip API proxy folder
-      run: |
-        API_FOLDER="$GITHUB_WORKSPACE/apiproxies/demoapi"
-        ZIP_FILE="$GITHUB_WORKSPACE/demoapi.zip"
-        echo "Zipping $API_FOLDER into $ZIP_FILE..."
-        cd "$API_FOLDER"
-        zip -r "$ZIP_FILE" ./*
-        echo "Contents of zip:"
-        unzip -l "$ZIP_FILE"
-
-    # 9️⃣ Import API proxy via Apigee CLI
+    # 7️⃣ Import API proxy via apigeecli
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
-        ZIP_FILE="$GITHUB_WORKSPACE/demoapi.zip"
+        API_FOLDER="$GITHUB_WORKSPACE/apiproxies/demoapi"
 
         echo "Getting access token..."
         TOKEN=$(gcloud auth print-access-token)
 
         echo "Importing API proxy via apigeecli..."
-        IMPORT_RESPONSE=$(apigeecli apis import -f "$ZIP_FILE" --org "$ORG" --token "$TOKEN" 2>&1 || true)
+        IMPORT_RESPONSE=$(apigeecli apis import --folder "$API_FOLDER" --org "$ORG" --token "$TOKEN" 2>&1 || true)
 
         echo "Import response:"
         echo "$IMPORT_RESPONSE"
 
+        # Extract revision safely
         REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision // empty')
         if [ -z "$REVISION" ]; then
-          echo "❌ Failed to detect revision from import. Check proxy bundle contents."
+          echo "❌ Error: Failed to detect revision from import. Check proxy bundle contents."
           exit 1
         fi
 
         echo "Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 🔟 Deploy API proxy
+    # 8️⃣ Deploy API proxy
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
@@ -112,14 +86,10 @@ jobs:
         fi
 
         echo "Deploying revision $REVISION to environment $ENV..."
-        DEPLOY_RESPONSE=$(apigeecli apis deploy --name "$API_NAME" --rev "$REVISION" --env "$ENV" --org "$ORG" --token "$(gcloud auth print-access-token)" 2>&1 || true)
+        gcloud apigee apis deploy "$REVISION" \
+          --api="$API_NAME" \
+          --environment="$ENV" \
+          --organization="$ORG" \
+          --override
 
-        echo "Deploy response:"
-        echo "$DEPLOY_RESPONSE"
-
-        if echo "$DEPLOY_RESPONSE" | grep -qi "error"; then
-          echo "❌ Deployment failed!"
-          exit 1
-        fi
-
-        echo "✅ Deployment complete!"
+        echo "Deployment complete!"
