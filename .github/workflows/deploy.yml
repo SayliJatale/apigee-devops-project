@@ -47,9 +47,9 @@ jobs:
 
         echo "Uploading API bundle..."
         IMPORT_OUTPUT=$(apigeecli apis import \
-          -f ./apiproxy \
-          -n demoapi \
-          -o ${{ secrets.APIGEE_ORG }} \
+          --file ./apiproxy \
+          --name demoapi \
+          --org ${{ secrets.APIGEE_ORG }} \
           --token $TOKEN \
           --json)
 
@@ -70,9 +70,9 @@ jobs:
         TOKEN=$(gcloud auth print-access-token)
         echo "Deploying revision $REVISION..."
         apigeecli apis deploy \
-          -n demoapi \
-          -e ${{ secrets.APIGEE_ENV }} \
-          -o ${{ secrets.APIGEE_ORG }} \
-          -v $REVISION \
+          --name demoapi \
+          --env ${{ secrets.APIGEE_ENV }} \
+          --org ${{ secrets.APIGEE_ORG }} \
+          --rev $REVISION \
           --token $TOKEN \
           --ovr
