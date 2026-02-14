@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1️⃣ Checkout code
+    # 1️⃣ Checkout repository
     - name: Checkout repository
       uses: actions/checkout@v4
 
@@ -64,12 +64,11 @@ jobs:
         echo "Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 7️⃣ Deploy the latest revision via gcloud (fixed syntax)
+    # 7️⃣ Deploy the latest revision via gcloud (correct syntax)
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
         ENV="${{ secrets.APIGEE_ENV }}"
-        API_NAME="demoapi"
 
         if [ -z "$REVISION" ] || [ "$REVISION" == "null" ]; then
           echo "Error: REVISION is not set. Cannot deploy."
@@ -77,11 +76,9 @@ jobs:
         fi
 
         echo "Deploying revision $REVISION to environment $ENV..."
-        gcloud apigee apis deploy \
-          --name="$API_NAME" \
+        gcloud apigee apis deploy "$REVISION" \
           --environment="$ENV" \
           --organization="$ORG" \
-          --revision="$REVISION" \
           --override
 
         echo "Deployment complete!"
