@@ -38,39 +38,31 @@ jobs:
           zip -r apiproxy.zip ./apiproxy
         fi
 
-    # 6️⃣ Validate API proxy bundle
-    - name: Validate API proxy
+    # 6️⃣ Download and setup apigeecli v2.17
+    - name: Install apigeecli
       run: |
         curl -sL https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
         chmod +x download.sh
         ./download.sh
         export PATH=$PATH:$HOME/.apigeecli/bin
 
-        echo "Validating API proxy bundle..."
-        apigeecli apis validate -f ./apiproxy.zip || { echo "❌ Proxy bundle validation failed"; exit 1; }
-        echo "✅ Proxy bundle is valid."
-
-    # 7️⃣ Import API proxy via REST API
+    # 7️⃣ Import API proxy (validates automatically)
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
         API_NAME="demoapi"
 
-        echo "Getting access token (impersonate service account)..."
+        echo "Getting access token (impersonate SA)..."
         TOKEN=$(gcloud auth print-access-token --impersonate-service-account=apigee-cicd@gcp-project-457715.iam.gserviceaccount.com)
 
-        echo "Uploading API bundle via REST API..."
-        IMPORT_RESPONSE=$(curl -s -X POST \
-          -H "Authorization: Bearer $TOKEN" \
-          -F "file=@./apiproxy.zip" \
-          "https://apigee.googleapis.com/v1/organizations/$ORG/apis?action=import&name=$API_NAME")
+        echo "Importing API bundle..."
+        IMPORT_RESPONSE=$(apigeecli apis import -f ./apiproxy.zip -o "$ORG" -t "$TOKEN" --name "$API_NAME")
+        echo "$IMPORT_RESPONSE"
 
-        echo "Import response: $IMPORT_RESPONSE"
-
-        # Extract revision number
+        # Extract revision number from import response
         REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision')
         if [ -z "$REVISION" ] || [ "$REVISION" == "null" ]; then
-          echo "❌ Failed to detect revision from import."
+          echo "❌ Failed to detect revision from import. Check proxy bundle for errors."
           exit 1
         fi
 
@@ -94,7 +86,7 @@ jobs:
         echo "Deploy response: $DEPLOY_RESPONSE"
 
         if echo "$DEPLOY_RESPONSE" | jq -e '.error' >/dev/null; then
-          echo "❌ Deployment failed! Check that the service account has proper roles and that the proxy bundle is valid."
+          echo "❌ Deployment failed! Ensure SA has proper roles and the proxy bundle is valid."
           exit 1
         fi
 
