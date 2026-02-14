@@ -29,7 +29,15 @@ jobs:
       run: |
         sudo apt-get update && sudo apt-get install -y jq curl unzip zip
 
-    # 5️⃣ Install apigeecli
+    # 5️⃣ Prepare proxy bundle zip
+    - name: Prepare proxy bundle
+      run: |
+        if [ ! -f "./apiproxy.zip" ]; then
+          echo "Zipping proxy folder..."
+          zip -r apiproxy.zip ./apiproxy
+        fi
+
+    # 6️⃣ Install apigeecli
     - name: Install apigeecli
       run: |
         curl -sL https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
@@ -37,19 +45,14 @@ jobs:
         ./download.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6️⃣ Import API proxy via apigeecli (folder, not zip)
+    # 7️⃣ Import API proxy via apigeecli
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
-        API_NAME="demoapi"
-
-        echo "Getting access token..."
-        TOKEN=$(gcloud auth print-access-token)
 
         echo "Importing API proxy via apigeecli..."
-        IMPORT_RESPONSE=$(apigeecli apis import -f ./apiproxy -o "$ORG" -t "$TOKEN")
-
-        echo "Import response: $IMPORT_RESPONSE"
+        IMPORT_RESPONSE=$(apigeecli apis import -f ./apiproxy.zip -o $ORG --default-token 2>&1)
+        echo "$IMPORT_RESPONSE"
 
         # Extract revision number
         REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision')
@@ -58,10 +61,10 @@ jobs:
           exit 1
         fi
 
-        echo "Imported revision: $REVISION"
+        echo "✅ Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 7️⃣ Deploy API proxy
+    # 8️⃣ Deploy API proxy
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
@@ -74,12 +77,6 @@ jobs:
         fi
 
         echo "Deploying revision $REVISION to environment $ENV..."
-        apigeecli apis deploy \
-          -n "$API_NAME" \
-          -r "$REVISION" \
-          -e "$ENV" \
-          -o "$ORG" \
-          -t "$TOKEN" \
-          --ovr
+        apigeecli apis deploy -n $API_NAME -r $REVISION -e $ENV -o $ORG --default-token
 
         echo "✅ Deployment complete!"
