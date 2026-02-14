@@ -18,4 +18,21 @@ jobs:
     - name: Auth to Google Cloud
       uses: google-github-actions/auth@v2
       with:
-        credential
+        credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+    # 3️⃣ Set up gcloud
+    - name: Set up gcloud
+      uses: google-github-actions/setup-gcloud@v2
+
+    # 4️⃣ Install apigeecli & dependencies
+    - name: Install apigeecli & dependencies
+      run: |
+        sudo apt-get update && sudo apt-get install -y jq unzip curl
+
+        # Download and install apigeecli
+        curl -L https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
+        chmod +x download.sh
+        ./download.sh
+
+        # Add CLI to PATH for this step and subsequent steps
+        ex
