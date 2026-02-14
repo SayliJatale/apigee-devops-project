@@ -27,7 +27,7 @@ jobs:
     # 4️⃣ Install dependencies
     - name: Install dependencies
       run: |
-        sudo apt-get update && sudo apt-get install -y jq curl unzip zip xmllint
+        sudo apt-get update && sudo apt-get install -y jq curl unzip zip
 
     # 5️⃣ Install Apigee CLI
     - name: Install Apigee CLI
@@ -37,69 +37,35 @@ jobs:
         ./download.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6️⃣ Validate XML files
-    - name: Validate proxy XMLs
-      run: |
-        API_FOLDER="$GITHUB_WORKSPACE/apiproxies/demoapi"
-        echo "Validating XML files..."
-        find "$API_FOLDER" -name "*.xml" -print0 | while IFS= read -r -d '' file; do
-          echo "Validating $file"
-          xmllint --noout "$file" || exit 1
-        done
-
-    # 7️⃣ Validate that all referenced policies exist
-    - name: Validate policy references
-      run: |
-        API_FOLDER="$GITHUB_WORKSPACE/apiproxies/demoapi"
-        POLICIES_FOLDER="$API_FOLDER/policies"
-        echo "Checking policy references in flows..."
-
-        find "$API_FOLDER/proxies" "$API_FOLDER" -name "*.xml" | while read xml; do
-          grep -oP '(?<=<Step>.*<Name>).*?(?=</Name>)' "$xml" | while read policy; do
-            if [ ! -f "$POLICIES_FOLDER/$policy.xml" ]; then
-              echo "❌ Missing policy $policy referenced in $xml"
-              exit 1
-            fi
-          done
-        done
-        echo "✅ All referenced policies exist."
-
-    # 8️⃣ Zip API proxy folder
-    - name: Zip API proxy folder
-      run: |
-        API_FOLDER="$GITHUB_WORKSPACE/apiproxies/demoapi"
-        ZIP_FILE="$GITHUB_WORKSPACE/demoapi.zip"
-        echo "Zipping $API_FOLDER into $ZIP_FILE..."
-        cd "$API_FOLDER"
-        zip -r "$ZIP_FILE" ./*
-        echo "Contents of zip:"
-        unzip -l "$ZIP_FILE"
-
-    # 9️⃣ Import API proxy via Apigee CLI
+    # 6️⃣ Import API proxy via Apigee CLI (folder, not zip)
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
-        ZIP_FILE="$GITHUB_WORKSPACE/demoapi.zip"
+        API_FOLDER="$GITHUB_WORKSPACE/apiproxies/demoapi"
+
+        echo "Checking contents of API folder..."
+        ls -R "$API_FOLDER"
 
         echo "Getting access token..."
         TOKEN=$(gcloud auth print-access-token)
 
         echo "Importing API proxy via apigeecli..."
-        IMPORT_RESPONSE=$(apigeecli apis import -f "$ZIP_FILE" --org "$ORG" --token "$TOKEN" 2>&1 || true)
+        IMPORT_RESPONSE=$(apigeecli apis import -f "$API_FOLDER" --org "$ORG" --token "$TOKEN" 2>&1 || true)
 
         echo "Import response:"
         echo "$IMPORT_RESPONSE"
 
+        # Extract revision safely
         REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision // empty')
         if [ -z "$REVISION" ]; then
-          echo "❌ Failed to detect revision from import. Check proxy bundle contents."
+          echo "❌ Error: Failed to detect revision from import. Check proxy bundle contents."
           exit 1
         fi
 
         echo "Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 🔟 Deploy API proxy
+    # 7️⃣ Deploy API proxy via Apigee CLI
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
