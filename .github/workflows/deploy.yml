@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1️⃣ Checkout code
+    # 1️⃣ Checkout repository
     - name: Checkout repository
       uses: actions/checkout@v4
 
@@ -29,7 +29,7 @@ jobs:
       run: |
         sudo apt-get update && sudo apt-get install -y jq curl unzip zip
 
-    # 5️⃣ Prepare proxy bundle (zip if needed)
+    # 5️⃣ Prepare proxy bundle
     - name: Prepare proxy bundle
       run: |
         if [ ! -f "./apiproxy.zip" ]; then
@@ -37,7 +37,7 @@ jobs:
           zip -r apiproxy.zip ./apiproxy
         fi
 
-    # 6️⃣ Import API proxy via Apigee REST API
+    # 6️⃣ Import API proxy via REST API
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
@@ -54,7 +54,7 @@ jobs:
 
         echo "Import response: $IMPORT_RESPONSE"
 
-        # Extract revision
+        # Extract revision number
         REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision')
         if [ -z "$REVISION" ] || [ "$REVISION" == "null" ]; then
           echo "Error: Failed to detect revision from import."
@@ -64,7 +64,7 @@ jobs:
         echo "Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 7️⃣ Deploy the revision
+    # 7️⃣ Deploy API proxy (official gcloud syntax)
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
