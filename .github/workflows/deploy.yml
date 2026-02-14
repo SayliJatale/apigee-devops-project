@@ -27,7 +27,7 @@ jobs:
     # 4️⃣ Install dependencies
     - name: Install dependencies
       run: |
-        sudo apt-get update && sudo apt-get install -y jq curl unzip
+        sudo apt-get update && sudo apt-get install -y jq curl unzip zip
 
     # 5️⃣ Install apigeecli
     - name: Install apigeecli
@@ -37,7 +37,15 @@ jobs:
         ./download.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6️⃣ Import API proxy directly from folder
+    # 6️⃣ Prepare proxy zip
+    - name: Prepare proxy bundle
+      run: |
+        if [ ! -f "./apiproxy.zip" ]; then
+          echo "Zipping proxy folder..."
+          zip -r apiproxy.zip ./apiproxy
+        fi
+
+    # 7️⃣ Import API proxy
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
@@ -47,7 +55,7 @@ jobs:
         TOKEN=$(gcloud auth print-access-token)
 
         echo "Importing API proxy via apigeecli..."
-        IMPORT_RESPONSE=$(apigeecli apis import -f ./apiproxy -o "$ORG" -t "$TOKEN")
+        IMPORT_RESPONSE=$(apigeecli apis import -f ./apiproxy.zip -o "$ORG" -t "$TOKEN")
         echo "$IMPORT_RESPONSE"
 
         # Extract revision number
@@ -56,23 +64,32 @@ jobs:
           echo "❌ Failed to detect revision from import. Check proxy bundle for errors."
           exit 1
         fi
-
-        echo "✅ Imported revision: $REVISION"
+        echo "Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 7️⃣ Deploy API proxy
+    # 8️⃣ Deploy API proxy via REST API
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
         ENV="${{ secrets.APIGEE_ENV }}"
         API_NAME="demoapi"
+        REVISION="${{ env.REVISION }}"
 
-        if [ -z "$REVISION" ] || [ "$REVISION" == "null" ]; then
-          echo "❌ REVISION not set. Cannot deploy."
+        echo "Getting access token..."
+        TOKEN=$(gcloud auth print-access-token)
+
+        echo "Deploying revision $REVISION to environment $ENV via REST API..."
+        DEPLOY_RESPONSE=$(curl -s -X POST \
+          -H "Authorization: Bearer $TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{}' \
+          "https://apigee.googleapis.com/v1/organizations/$ORG/environments/$ENV/apis/$API_NAME/revisions/$REVISION/deployments")
+
+        echo "$DEPLOY_RESPONSE"
+
+        if echo "$DEPLOY_RESPONSE" | jq -e '.error' >/dev/null; then
+          echo "❌ Deployment failed!"
           exit 1
         fi
 
-        echo "Deploying revision $REVISION to environment $ENV..."
-        apigeecli apis deploy -n "$API_NAME" -e "$ENV" -o "$ORG" -v "$REVISION" -t "$(gcloud auth print-access-token)" --ovr
-
-        echo "✅ Deployment complete!"
+        echo "✅ Deployment successful!"
