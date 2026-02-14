@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1️⃣ Checkout code
+    # 1️⃣ Checkout repository
     - name: Checkout repository
       uses: actions/checkout@v4
 
@@ -25,36 +25,45 @@ jobs:
       uses: google-github-actions/setup-gcloud@v2
 
     # 4️⃣ Install dependencies (jq for JSON parsing)
-    - name: Install jq
-      run: sudo apt-get update && sudo apt-get install -y jq
-
-    # 5️⃣ Import API proxy
-    - name: Import API proxy
+    - name: Install dependencies
       run: |
-        ORG="${{ secrets.APIGEE_ORG }}"
-        echo "Importing API proxy..."
-        gcloud apigee apis import ./apiproxy \
-          --organization="$ORG"
+        sudo apt-get update && sudo apt-get install -y jq curl unzip
 
-    # 6️⃣ Detect latest revision
-    - name: Get latest revision
-      id: get-revision
+    # 5️⃣ Create ZIP bundle of your proxy (if not already zipped)
+    - name: Prepare proxy bundle
+      run: |
+        if [ ! -f "./apiproxy.zip" ]; then
+          echo "Zipping proxy folder..."
+          zip -r apiproxy.zip ./apiproxy
+        fi
+
+    # 6️⃣ Import API proxy via Apigee Management API
+    - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
         API_NAME="demoapi"
 
-        REVISION=$(gcloud apigee apis list --organization="$ORG" --format=json \
-          | jq -r ".[] | select(.name==\"$API_NAME\") | .latestRevision")
+        echo "Getting access token..."
+        TOKEN=$(gcloud auth print-access-token)
 
+        echo "Uploading API bundle via REST API..."
+        IMPORT_RESPONSE=$(curl -s -X POST \
+          -H "Authorization: Bearer $TOKEN" \
+          -F "file=@./apiproxy.zip" \
+          "https://apigee.googleapis.com/v1/organizations/$ORG/apis?action=import")
+
+        echo "Import response: $IMPORT_RESPONSE"
+
+        # Extract the revision number from response
+        REVISION=$(echo $IMPORT_RESPONSE | jq -r '.revision')
         if [ -z "$REVISION" ] || [ "$REVISION" == "null" ]; then
-          echo "Error: Could not detect latest revision."
+          echo "Error: Failed to detect revision from import."
           exit 1
         fi
-
-        echo "Latest revision detected: $REVISION"
+        echo "Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 7️⃣ Deploy API proxy
+    # 7️⃣ Deploy the latest revision using gcloud
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
@@ -63,7 +72,9 @@ jobs:
 
         echo "Deploying revision $REVISION to environment $ENV..."
         gcloud apigee apis deploy "$REVISION" \
+          --api="$API_NAME" \
           --organization="$ORG" \
-          --environment="$ENV"
+          --environment="$ENV" \
+          --override
 
         echo "Deployment complete!"
