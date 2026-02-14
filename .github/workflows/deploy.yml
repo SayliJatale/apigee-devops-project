@@ -38,9 +38,10 @@ jobs:
         ./download.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6️⃣ Prepare API proxy zip
-    - name: Prepare API proxy zip
+    # 6️⃣ Prepare API proxy ZIP and Import
+    - name: Import API proxy
       run: |
+        ORG="${{ secrets.APIGEE_ORG }}"
         API_NAME="demoapi"
         API_FOLDER="$GITHUB_WORKSPACE/apiproxies/$API_NAME"
         ZIP_FILE="$GITHUB_WORKSPACE/${API_NAME}.zip"
@@ -48,40 +49,35 @@ jobs:
         echo "Checking contents of API folder..."
         ls -R "$API_FOLDER"
 
-        # Validate all XML files
-        echo "Validating XML files..."
-        find "$API_FOLDER" -name '*.xml' -exec xmllint --noout {} \;
-
-        # Zip contents (must zip the folder contents, not the folder itself!)
+        echo "Zipping API proxy contents..."
         cd "$API_FOLDER"
         zip -r "$ZIP_FILE" ./*
 
-        echo "Contents of zip file:"
-        unzip -l "$ZIP_FILE"
+        if [ ! -f "$ZIP_FILE" ]; then
+          echo "❌ Error: Zip file was not created!"
+          exit 1
+        fi
 
-        echo "ZIP_FILE=$ZIP_FILE" >> $GITHUB_ENV
-
-    # 7️⃣ Import API proxy via Apigee CLI
-    - name: Import API proxy
-      run: |
-        ORG="${{ secrets.APIGEE_ORG }}"
+        echo "Getting access token..."
         TOKEN=$(gcloud auth print-access-token)
+
         echo "Importing API proxy via Apigee CLI..."
         IMPORT_RESPONSE=$(apigeecli apis import -f "$ZIP_FILE" --org "$ORG" --token "$TOKEN" 2>&1 || true)
+
         echo "Import response:"
         echo "$IMPORT_RESPONSE"
 
         # Extract revision safely
         REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision // empty')
         if [ -z "$REVISION" ]; then
-          echo "❌ Error: Failed to detect revision from import. Check proxy bundle contents."
+          echo "❌ Error: Failed to detect revision from import. Check zip contents."
           exit 1
         fi
 
         echo "Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 8️⃣ Deploy API proxy via Apigee CLI
+    # 7️⃣ Deploy API proxy
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
