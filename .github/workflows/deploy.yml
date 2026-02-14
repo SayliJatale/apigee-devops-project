@@ -27,56 +27,62 @@ jobs:
     # 4️⃣ Install dependencies
     - name: Install dependencies
       run: |
-        sudo apt-get update && sudo apt-get install -y jq curl unzip zip
+        sudo apt-get update && sudo apt-get install -y jq unzip zip curl
 
-    # 5️⃣ Prepare proxy bundle zip
+    # 5️⃣ Prepare proxy bundle
     - name: Prepare proxy bundle
       run: |
         if [ ! -f "./apiproxy.zip" ]; then
           echo "Zipping proxy folder..."
           zip -r apiproxy.zip ./apiproxy
         fi
+        ls -l ./apiproxy.zip
 
-    # 6️⃣ Install apigeecli
-    - name: Install apigeecli
-      run: |
-        curl -sL https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
-        chmod +x download.sh
-        ./download.sh
-        echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
-
-    # 7️⃣ Import API proxy via apigeecli
+    # 6️⃣ Import API proxy via apigeecli
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
-
         echo "Importing API proxy via apigeecli..."
-        IMPORT_RESPONSE=$(apigeecli apis import -f ./apiproxy.zip -o $ORG --default-token 2>&1)
+        
+        # Debug: show apiproxy contents
+        echo "Contents of apiproxy folder:"
+        ls -R ./apiproxy
+
+        # Run import
+        IMPORT_RESPONSE=$(apigeecli apis import -f ./apiproxy.zip -o $ORG --default-token 2>&1 || true)
+        echo "Raw import response:"
         echo "$IMPORT_RESPONSE"
 
-        # Extract revision number
-        REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision')
-        if [ -z "$REVISION" ] || [ "$REVISION" == "null" ]; then
-          echo "❌ Error: Failed to detect revision from import."
+        # Extract revision
+        REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision // empty')
+        if [ -z "$REVISION" ]; then
+          echo "❌ Failed to detect revision from import. Check proxy bundle and logs above."
           exit 1
         fi
 
-        echo "✅ Imported revision: $REVISION"
+        echo "Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 8️⃣ Deploy API proxy
+    # 7️⃣ Deploy API proxy
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
         ENV="${{ secrets.APIGEE_ENV }}"
         API_NAME="demoapi"
 
-        if [ -z "$REVISION" ] || [ "$REVISION" == "null" ]; then
-          echo "❌ Error: REVISION is not set. Cannot deploy."
+        if [ -z "$REVISION" ]; then
+          echo "❌ REVISION not set. Cannot deploy."
           exit 1
         fi
 
         echo "Deploying revision $REVISION to environment $ENV..."
-        apigeecli apis deploy -n $API_NAME -r $REVISION -e $ENV -o $ORG --default-token
+        DEPLOY_RESPONSE=$(apigeecli apis deploy -n $API_NAME -e $ENV -o $ORG --rev $REVISION --default-token 2>&1 || true)
+        echo "Deployment response:"
+        echo "$DEPLOY_RESPONSE"
+
+        if echo "$DEPLOY_RESPONSE" | grep -q "error"; then
+          echo "❌ Deployment failed. Check logs above."
+          exit 1
+        fi
 
         echo "✅ Deployment complete!"
