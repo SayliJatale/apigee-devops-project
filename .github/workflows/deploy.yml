@@ -37,20 +37,24 @@ jobs:
         ./download.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6️⃣ Import API proxy (direct folder import)
+    # 6️⃣ Prepare and import API proxy
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
         API_FOLDER="$GITHUB_WORKSPACE/apiproxies/demoapi"
+        ZIP_FILE="$GITHUB_WORKSPACE/apiproxies/demoapi.zip"
 
         echo "Checking contents of API folder..."
         ls -R "$API_FOLDER"
+
+        echo "Zipping proxy folder..."
+        zip -r "$ZIP_FILE" "$API_FOLDER"
 
         echo "Getting access token..."
         TOKEN=$(gcloud auth print-access-token)
 
         echo "Importing API proxy via apigeecli..."
-        IMPORT_RESPONSE=$(apigeecli apis import -f "$API_FOLDER" --org "$ORG" --token "$TOKEN" 2>&1 || true)
+        IMPORT_RESPONSE=$(apigeecli apis import -f "$ZIP_FILE" --org "$ORG" --token "$TOKEN" 2>&1 || true)
 
         echo "Import response:"
         echo "$IMPORT_RESPONSE"
