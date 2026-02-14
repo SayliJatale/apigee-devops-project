@@ -38,16 +38,38 @@ jobs:
         ./download.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6️⃣ Prepare API proxy ZIP and Import
+    # 6️⃣ Validate API proxy
+    - name: Validate API proxy
+      run: |
+        API_NAME="demoapi"
+        API_FOLDER="$GITHUB_WORKSPACE/apiproxies/$API_NAME"
+
+        echo "Checking API proxy folder contents..."
+        ls -R "$API_FOLDER"
+
+        # Check apiproxy.xml exists
+        if [ ! -f "$API_FOLDER/apiproxy.xml" ]; then
+          echo "❌ Error: apiproxy.xml is missing in $API_FOLDER"
+          exit 1
+        fi
+
+        # Validate XML syntax
+        echo "Validating apiproxy.xml syntax..."
+        xmllint --noout "$API_FOLDER/apiproxy.xml"
+        if [ $? -ne 0 ]; then
+          echo "❌ Error: apiproxy.xml is not valid XML!"
+          exit 1
+        fi
+
+        echo "✅ API proxy folder validated successfully."
+
+    # 7️⃣ Zip API proxy and Import
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
         API_NAME="demoapi"
         API_FOLDER="$GITHUB_WORKSPACE/apiproxies/$API_NAME"
         ZIP_FILE="$GITHUB_WORKSPACE/${API_NAME}.zip"
-
-        echo "Checking contents of API folder..."
-        ls -R "$API_FOLDER"
 
         echo "Zipping API proxy contents..."
         cd "$API_FOLDER"
@@ -67,17 +89,16 @@ jobs:
         echo "Import response:"
         echo "$IMPORT_RESPONSE"
 
-        # Extract revision safely
         REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision // empty')
         if [ -z "$REVISION" ]; then
-          echo "❌ Error: Failed to detect revision from import. Check zip contents."
+          echo "❌ Error: Failed to detect revision from import. Check ZIP contents."
           exit 1
         fi
 
         echo "Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 7️⃣ Deploy API proxy
+    # 8️⃣ Deploy API proxy
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
