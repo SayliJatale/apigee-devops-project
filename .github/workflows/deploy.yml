@@ -10,96 +10,99 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1️⃣ Checkout repository
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      # 1️⃣ Checkout repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    # 2️⃣ Authenticate to Google Cloud
-    - name: Auth to Google Cloud
-      uses: google-github-actions/auth@v2
-      with:
-        credentials_json: '${{ secrets.GCP_SA_KEY }}'
+      # 2️⃣ Authenticate to Google Cloud
+      - name: Auth to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
 
-    # 3️⃣ Set up gcloud SDK
-    - name: Set up gcloud
-      uses: google-github-actions/setup-gcloud@v2
+      # 3️⃣ Set up gcloud SDK
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
 
-    # 4️⃣ Install dependencies
-    - name: Install dependencies
-      run: |
-        sudo apt-get update && sudo apt-get install -y jq curl unzip zip
+      # 4️⃣ Install dependencies
+      - name: Install dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y jq curl unzip zip libxml2-utils
 
-    # 5️⃣ Install Apigee CLI
-    - name: Install Apigee CLI
-      run: |
-        curl -sL https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
-        chmod +x download.sh
-        ./download.sh
-        echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
+      # 5️⃣ Install Apigee CLI
+      - name: Install Apigee CLI
+        run: |
+          curl -sL https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
+          chmod +x download.sh
+          ./download.sh
+          echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6️⃣ Validate and Zip API proxy (contents only)
-    - name: Validate & Zip API proxy
-      run: |
-        API_PARENT="$GITHUB_WORKSPACE/apiproxies/demoapi"
-        ZIP_FILE="$GITHUB_WORKSPACE/demoapi.zip"
+      # 6️⃣ Validate XML & zip API proxy properly (contents only)
+      - name: Validate & Zip API proxy
+        run: |
+          API_PARENT="$GITHUB_WORKSPACE/apiproxies/demoapi"
+          ZIP_FILE="$GITHUB_WORKSPACE/demoapi.zip"
 
-        echo "Checking contents of API folder..."
-        ls -R "$API_PARENT"
+          echo "Checking contents of API folder..."
+          ls -R "$API_PARENT"
 
-        echo "Validating XML files..."
-        find "$API_PARENT" -name "*.xml" -exec xmllint --noout {} \;
-        echo "All XML files are valid."
+          echo "Validating XML files..."
+          find "$API_PARENT" -name "*.xml" -exec xmllint --noout {} \;
+          echo "All XML files are valid."
 
-        echo "Zipping API proxy folder (contents only, root = proxy files)..."
-        cd "$API_PARENT"
-        zip -r "$ZIP_FILE" ./* > /dev/null
-        cd "$GITHUB_WORKSPACE"
+          echo "Zipping API proxy folder (contents only!)..."
+          cd "$API_PARENT"
+          zip -r "$ZIP_FILE" ./* > /dev/null
+          cd "$GITHUB_WORKSPACE"
 
-        echo "Contents of zip:"
-        unzip -l "$ZIP_FILE"
+          echo "Contents of zip:"
+          unzip -l "$ZIP_FILE"
 
-    # 7️⃣ Import API proxy
-    - name: Import API proxy via Apigee CLI
-      run: |
-        ORG="${{ secrets.APIGEE_ORG }}"
-        ZIP_FILE="$GITHUB_WORKSPACE/demoapi.zip"
+      # 7️⃣ Import API proxy via Apigee CLI (use zip)
+      - name: Import API proxy
+        run: |
+          ORG="${{ secrets.APIGEE_ORG }}"
+          ZIP_FILE="$GITHUB_WORKSPACE/demoapi.zip"
 
-        echo "Getting access token..."
-        TOKEN=$(gcloud auth print-access-token)
+          echo "Getting access token..."
+          TOKEN=$(gcloud auth print-access-token)
 
-        echo "Importing API proxy via Apigee CLI..."
-        IMPORT_OUTPUT=$(apigeecli apis import -f "$ZIP_FILE" --org "$ORG" --token "$TOKEN" 2>&1 || true)
-        echo "$IMPORT_OUTPUT"
+          echo "Importing API proxy via Apigee CLI..."
+          IMPORT_RESPONSE=$(apigeecli apis import -f "$ZIP_FILE" --org "$ORG" --token "$TOKEN" 2>&1 || true)
 
-        # Extract revision safely
-        REVISION=$(echo "$IMPORT_OUTPUT" | jq -r '.revision // empty')
-        if [ -z "$REVISION" ]; then
-          echo "❌ Import failed! Check API proxy zip contents or raw output above."
-          exit 1
-        fi
+          echo "Import response:"
+          echo "$IMPORT_RESPONSE"
 
-        echo "Imported revision: $REVISION"
-        echo "REVISION=$REVISION" >> $GITHUB_ENV
+          REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision // empty')
+          if [ -z "$REVISION" ]; then
+            echo "❌ Import failed! Check API proxy zip contents or raw output above."
+            exit 1
+          fi
 
-    # 8️⃣ Deploy API proxy
-    - name: Deploy API proxy via Apigee CLI
-      run: |
-        ORG="${{ secrets.APIGEE_ORG }}"
-        ENV="${{ secrets.APIGEE_ENV }}"
-        API_NAME="demoapi"
+          echo "Imported revision: $REVISION"
+          echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-        if [ -z "$REVISION" ]; then
-          echo "❌ Error: REVISION is not set. Cannot deploy."
-          exit 1
-        fi
+      # 8️⃣ Deploy API proxy
+      - name: Deploy API proxy
+        run: |
+          ORG="${{ secrets.APIGEE_ORG }}"
+          ENV="${{ secrets.APIGEE_ENV }}"
+          API_NAME="demoapi"
 
-        echo "Deploying revision $REVISION to environment $ENV..."
-        DEPLOY_OUTPUT=$(apigeecli apis deploy --name "$API_NAME" --rev "$REVISION" --env "$ENV" --org "$ORG" --token "$(gcloud auth print-access-token)" 2>&1 || true)
-        echo "$DEPLOY_OUTPUT"
+          if [ -z "$REVISION" ]; then
+            echo "❌ Error: REVISION is not set. Cannot deploy."
+            exit 1
+          fi
 
-        if echo "$DEPLOY_OUTPUT" | grep -qi "error"; then
-          echo "❌ Deployment failed!"
-          exit 1
-        fi
+          echo "Deploying revision $REVISION to environment $ENV..."
+          DEPLOY_RESPONSE=$(apigeecli apis deploy --name "$API_NAME" --rev "$REVISION" --env "$ENV" --org "$ORG" --token "$(gcloud auth print-access-token)" 2>&1 || true)
 
-        echo "✅ Deployment complete!"
+          echo "Deploy response:"
+          echo "$DEPLOY_RESPONSE"
+
+          if echo "$DEPLOY_RESPONSE" | grep -qi "error"; then
+            echo "❌ Deployment failed!"
+            exit 1
+          fi
+
+          echo "✅ Deployment complete!"
