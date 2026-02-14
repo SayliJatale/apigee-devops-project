@@ -55,7 +55,7 @@ jobs:
 
         echo "Import response: $IMPORT_RESPONSE"
 
-        # Extract revision number from response
+        # Extract revision number
         REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision')
         if [ -z "$REVISION" ] || [ "$REVISION" == "null" ]; then
           echo "❌ Failed to detect revision from import."
@@ -65,13 +65,30 @@ jobs:
         echo "✅ Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 7️⃣ Debug step (optional)
-    - name: Debug variables
+    # 7️⃣ Pre-deploy permission check
+    - name: Check deploy permissions
       run: |
-        echo "ORG=${{ secrets.APIGEE_ORG }}"
-        echo "ENV=${{ secrets.APIGEE_ENV }}"
-        echo "REVISION=$REVISION"
-        ls -l ./apiproxy
+        ORG="${{ secrets.APIGEE_ORG }}"
+        ENV="${{ secrets.APIGEE_ENV }}"
+        API_NAME="demoapi"
+
+        TOKEN=$(gcloud auth print-access-token)
+
+        echo "Checking if service account can deploy..."
+        CHECK=$(curl -s -o /dev/null -w "%{http_code}" \
+          -X POST \
+          -H "Authorization: Bearer $TOKEN" \
+          "https://apigee.googleapis.com/v1/organizations/$ORG/environments/$ENV/apis/$API_NAME/revisions/$REVISION/deployments")
+
+        if [ "$CHECK" -eq 403 ]; then
+          echo "❌ Deployment permission denied! The service account needs 'Apigee API Admin' or 'Environment Admin' roles."
+          exit 1
+        elif [ "$CHECK" -ge 400 ]; then
+          echo "❌ Deployment check failed with HTTP code $CHECK"
+          exit 1
+        else
+          echo "✅ Service account has deployment permission."
+        fi
 
     # 8️⃣ Deploy API proxy via REST API
     - name: Deploy API proxy
@@ -79,11 +96,6 @@ jobs:
         ORG="${{ secrets.APIGEE_ORG }}"
         ENV="${{ secrets.APIGEE_ENV }}"
         API_NAME="demoapi"
-
-        if [ -z "$REVISION" ] || [ "$REVISION" == "null" ]; then
-          echo "❌ REVISION is not set. Cannot deploy."
-          exit 1
-        fi
 
         echo "Deploying revision $REVISION to environment $ENV via REST API..."
         TOKEN=$(gcloud auth print-access-token)
@@ -94,9 +106,8 @@ jobs:
 
         echo "Deploy response: $DEPLOY_RESPONSE"
 
-        # Optional: check for success
         if echo "$DEPLOY_RESPONSE" | jq -e '.error' >/dev/null; then
-          echo "❌ Deployment failed!"
+          echo "❌ Deployment failed! Check roles and API proxy configuration."
           exit 1
         fi
 
