@@ -2,7 +2,7 @@
 <ProxyEndpoint name="default">
   <PreFlow name="PreFlow">
     <Request>
-      <Step>Assign-UniqueID<Step>
+      <Step>Assign-UniqueID</Step>
     <Request/>
     <Response/>
   </PreFlow>
