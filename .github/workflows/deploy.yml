@@ -28,7 +28,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y jq curl unzip zip
+        sudo apt-get install -y jq curl unzip zip xmllint
 
     # 5️⃣ Install Apigee CLI
     - name: Install Apigee CLI
@@ -38,7 +38,7 @@ jobs:
         ./download.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6️⃣ Import API proxy via Apigee CLI (folder, not zip)
+    # 6️⃣ Import API proxy via Apigee CLI
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
@@ -51,13 +51,13 @@ jobs:
         TOKEN=$(gcloud auth print-access-token)
 
         echo "Importing API proxy via apigeecli..."
-        IMPORT_RESPONSE=$(apigeecli apis import -f "$API_FOLDER" --org "$ORG" --token "$TOKEN" 2>&1 || true)
+        IMPORT_RESPONSE=$(apigeecli apis import -f "$(realpath $API_FOLDER)" --org "$ORG" --default-token 2>&1 || true)
 
         echo "Import response:"
         echo "$IMPORT_RESPONSE"
 
         # Extract revision safely
-        REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision // empty')
+        REVISION=$(echo "$IMPORT_RESPONSE" | grep -oP '(?<=Revision )\d+' | head -1)
         if [ -z "$REVISION" ]; then
           echo "❌ Error: Failed to detect revision from import. Check proxy bundle contents."
           exit 1
@@ -79,7 +79,7 @@ jobs:
         fi
 
         echo "Deploying revision $REVISION to environment $ENV..."
-        DEPLOY_RESPONSE=$(apigeecli apis deploy --name "$API_NAME" --rev "$REVISION" --env "$ENV" --org "$ORG" --token "$(gcloud auth print-access-token)" 2>&1 || true)
+        DEPLOY_RESPONSE=$(apigeecli apis deploy --name "$API_NAME" --rev "$REVISION" --env "$ENV" --org "$ORG" --default-token 2>&1 || true)
 
         echo "Deploy response:"
         echo "$DEPLOY_RESPONSE"
