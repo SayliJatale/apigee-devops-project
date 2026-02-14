@@ -1,0 +1,6 @@
+<AssignMessage name="Assign-UniqueID">
+    <AssignTo createNew="true" type="request">request</AssignTo>
+    <Set>
+        <Variable name="unique_id">{system.uuid}</Variable>
+    </Set>
+</AssignMessage>
