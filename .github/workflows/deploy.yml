@@ -10,6 +10,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
+    # -----------------------------
+    # Checkout repo
+    # -----------------------------
     - name: Checkout code
       uses: actions/checkout@v4
 
@@ -25,37 +29,45 @@ jobs:
       uses: google-github-actions/setup-gcloud@v2
 
     # -----------------------------
-    # Install apigeecli (official)
+    # Install apigeecli (FIXED)
     # -----------------------------
-   - name: Install apigeecli
-  run: |
-    curl -L https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
-    chmod +x download.sh
-    ./download.sh
+    - name: Install apigeecli
+      run: |
+        curl -L https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
+        chmod +x download.sh
+        ./download.sh
 
-    # add to path
-    export PATH=$PATH:$HOME/.apigeecli/bin
-    echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
+        # Add apigeecli to PATH
+        export PATH=$PATH:$HOME/.apigeecli/bin
+        echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    apigeecli version
+        apigeecli version
+
     # -----------------------------
-    # Deploy Proxy to Apigee
+    # Deploy proxy bundle
     # -----------------------------
     - name: Deploy proxy to Apigee
       run: |
         TOKEN=$(gcloud auth print-access-token)
 
+        echo "Creating API bundle..."
         apigeecli apis create bundle \
           -f ./apiproxy \
           -n demoapi \
           --org ${{ secrets.APIGEE_ORG }} \
           --token "$TOKEN"
 
-        REV=$(apigeecli apis list --org ${{ secrets.APIGEE_ORG }} --token "$TOKEN" | grep demoapi | awk '{print $2}' | tail -1)
+        echo "Fetching latest revision..."
+        REV=$(apigeecli apis list \
+          --org ${{ secrets.APIGEE_ORG }} \
+          --token "$TOKEN" | grep demoapi | awk '{print $2}' | tail -1)
 
+        echo "Deploying revision $REV ..."
         apigeecli apis deploy \
           --name demoapi \
           --rev "$REV" \
           --org ${{ secrets.APIGEE_ORG }} \
           --env ${{ secrets.APIGEE_ENV }} \
           --token "$TOKEN"
+
+        echo "DEPLOYMENT SUCCESS"
