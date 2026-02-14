@@ -10,22 +10,27 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    # 1️⃣ Checkout repo
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    # 2️⃣ Authenticate to Google Cloud
     - name: Auth to Google Cloud
       uses: google-github-actions/auth@v2
       with:
         credentials_json: '${{ secrets.GCP_SA_KEY }}'
 
+    # 3️⃣ Set up gcloud SDK
     - name: Set up gcloud
       uses: google-github-actions/setup-gcloud@v2
 
+    # 4️⃣ Install dependencies
     - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y jq curl unzip zip libxml2-utils
 
+    # 5️⃣ Install Apigee CLI
     - name: Install Apigee CLI
       run: |
         curl -sL https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
@@ -33,13 +38,14 @@ jobs:
         ./download.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
+    # 6️⃣ Validate XML
     - name: Validate API proxy XML
       run: |
         API_FOLDER="$GITHUB_WORKSPACE/apiproxies/demoapi"
         echo "Validating XML files in $API_FOLDER..."
         find "$API_FOLDER" -name "*.xml" -exec xmllint --noout {} \;
 
-    # ⚡ IMPORTANT FIX: DO NOT ZIP. Provide folder path directly.
+    # 7️⃣ Import API proxy (with debug JSON capture)
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
@@ -51,22 +57,26 @@ jobs:
         echo "Getting access token..."
         TOKEN=$(gcloud auth print-access-token)
 
-        echo "Importing API proxy via Apigee CLI..."
-        IMPORT_RESPONSE=$(apigeecli apis import -f "$API_FOLDER" --org "$ORG" --token "$TOKEN" 2>&1 || true)
+        echo "Importing API proxy via Apigee CLI (debug mode)..."
+        # Capture all output
+        IMPORT_RAW=$(apigeecli apis import -f "$API_FOLDER" --org "$ORG" --token "$TOKEN" 2>&1 || true)
+        echo "Raw import output:"
+        echo "$IMPORT_RAW"
 
-        echo "Import response:"
-        echo "$IMPORT_RESPONSE"
+        # Extract JSON line safely (ignore warnings)
+        IMPORT_JSON=$(echo "$IMPORT_RAW" | grep -Eo '\{.*\}' || echo "{}")
 
-        # Extract revision safely
-        REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision // empty')
+        # Parse revision
+        REVISION=$(echo "$IMPORT_JSON" | jq -r '.revision // empty')
         if [ -z "$REVISION" ]; then
-          echo "❌ Import failed! Check API proxy folder contents."
+          echo "❌ Import failed! Check API proxy folder contents or raw debug output above."
           exit 1
         fi
 
         echo "Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
+    # 8️⃣ Deploy API proxy
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
@@ -79,13 +89,14 @@ jobs:
         fi
 
         echo "Deploying revision $REVISION to environment $ENV..."
-        DEPLOY_RESPONSE=$(apigeecli apis deploy --name "$API_NAME" --rev "$REVISION" --env "$ENV" --org "$ORG" --token "$(gcloud auth print-access-token)" 2>&1 || true)
+        DEPLOY_RAW=$(apigeecli apis deploy --name "$API_NAME" --rev "$REVISION" --env "$ENV" --org "$ORG" --token "$(gcloud auth print-access-token)" 2>&1 || true)
+        echo "Raw deploy output:"
+        echo "$DEPLOY_RAW"
 
-        echo "Deploy response:"
-        echo "$DEPLOY_RESPONSE"
-
-        if echo "$DEPLOY_RESPONSE" | grep -qi "error"; then
-          echo "❌ Deployment failed!"
+        # Parse deploy success
+        DEPLOY_JSON=$(echo "$DEPLOY_RAW" | grep -Eo '\{.*\}' || echo "{}")
+        if echo "$DEPLOY_JSON" | jq -e '.error' >/dev/null 2>&1; then
+          echo "❌ Deployment failed! Check raw output above."
           exit 1
         fi
 
