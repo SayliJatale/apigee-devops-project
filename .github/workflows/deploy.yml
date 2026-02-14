@@ -24,7 +24,7 @@ jobs:
     - name: Set up gcloud
       uses: google-github-actions/setup-gcloud@v2
 
-    # 4️⃣ Install apigeecli & dependencies safely
+    # 4️⃣ Install apigeecli & dependencies and set PATH globally
     - name: Install apigeecli & dependencies
       run: |
         sudo apt-get update && sudo apt-get install -y jq unzip curl
@@ -34,16 +34,15 @@ jobs:
         chmod +x download.sh
         ./download.sh
 
-        # Add CLI to PATH for this step and subsequent steps
-        export PATH="$PATH:$HOME/.apigeecli/bin"
+        # Add CLI to PATH for all subsequent steps
+        echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-        # Verify installation by running help
-        apigeecli help
+        # Verify installation
+        $HOME/.apigeecli/bin/apigeecli help
 
-    # 5️⃣ Import and deploy API proxy
-    - name: Import and deploy API proxy
+    # 5️⃣ Import API proxy
+    - name: Import API proxy
       run: |
-        # Get GCP access token
         TOKEN=$(gcloud auth print-access-token)
 
         echo "Uploading API bundle..."
@@ -65,7 +64,10 @@ jobs:
           exit 1
         fi
 
-        # Deploy the imported revision
+    # 6️⃣ Deploy API proxy
+    - name: Deploy API proxy
+      run: |
+        TOKEN=$(gcloud auth print-access-token)
         echo "Deploying revision $REVISION..."
         apigeecli apis deploy \
           -n demoapi \
