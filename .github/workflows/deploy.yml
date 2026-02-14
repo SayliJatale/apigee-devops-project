@@ -1,63 +1,70 @@
-name: Apigee CI/CD
+name: Apigee CI/CD Deploy
 
 on:
   push:
     branches:
       - main
 
-env:
-  API_PROXY_NAME: demoapi        # Name of your API proxy folder
-  ORG: your-apigee-org           # Apigee org name
-  ENV: test                      # Target Apigee environment
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
+      # Checkout the repo
       - name: Checkout repository
         uses: actions/checkout@v3
 
+      # Install required dependencies
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y jq curl unzip zip libxml2-utils
 
+      # Setup gcloud
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          export_default_credentials: true
+
+      # Download & setup Apigee CLI
       - name: Download and setup Apigee CLI
         run: |
           curl -sL https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
           bash download.sh
-          export PATH=$PATH:$HOME/.apigeecli/bin
+          # Make apigeecli available in all following steps
+          echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-      - name: Setup gcloud with Service Account
-        uses: google-github-actions/setup-gcloud@v2
-        with:
-          project_id: ${{ secrets.GCP_PROJECT }}
-          service_account_key: ${{ secrets.GCP_SA_KEY }}
-          export_default_credentials: true
-
-      - name: Validate API proxy XMLs
+      # Validate XML files
+      - name: Validate XML files
         run: |
-          echo "Validating XML files..."
-          find apiproxies/${{ env.API_PROXY_NAME }} -name "*.xml" -exec xmllint --noout {} \;
+          echo "Validating XML files in demoapi..."
+          find apiproxies/demoapi -name "*.xml" -exec xmllint --noout {} \;
 
-      - name: Zip API proxy contents
+      # Zip the API proxy folder (relative paths!)
+      - name: Zip API proxy
         run: |
-          echo "Zipping API proxy contents..."
+          echo "Zipping API proxy folder..."
           cd apiproxies
-          zip -r ../${{ env.API_PROXY_NAME }}.zip ${{ env.API_PROXY_NAME }}
+          zip -r ../demoapi.zip demoapi -x "*/.*"
 
+      # Import API proxy to Apigee
       - name: Import API proxy
+        env:
+          ORG: ${{ secrets.APIGEE_ORG }}
+          ENV: ${{ secrets.APIGEE_ENV }}
         run: |
+          echo "Getting access token..."
+          TOKEN=$(gcloud auth print-access-token)
           echo "Importing API proxy via Apigee CLI..."
-          apigeecli apis import -f ${{ env.API_PROXY_NAME }}.zip -o ${{ env.ORG }} --default-token
+          apigeecli apis import -f ../demoapi.zip -o $ORG -e $ENV -t $TOKEN
 
+      # Deploy API proxy
       - name: Deploy API proxy
+        env:
+          ORG: ${{ secrets.APIGEE_ORG }}
+          ENV: ${{ secrets.APIGEE_ENV }}
         run: |
-          echo "Deploying API proxy to environment ${{ env.ENV }}..."
-          apigeecli apis deploy -n ${{ env.API_PROXY_NAME }} -o ${{ env.ORG }} -e ${{ env.ENV }} --default-token -d
-
-      - name: Show deployed revision
-        run: |
-          echo "Listing revisions..."
-          apigeecli apis revisions -n ${{ env.API_PROXY_NAME }} -o ${{ env.ORG }} --default-token
+          TOKEN=$(gcloud auth print-access-token)
+          apigeecli apis deploy -n demoapi -o $ORG -e $ENV -t $TOKEN
