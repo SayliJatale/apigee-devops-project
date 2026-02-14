@@ -37,11 +37,12 @@ jobs:
         ./download.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6️⃣ Import API proxy (folder, not zip)
+    # 6️⃣ Import API proxy
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
-        API_FOLDER="$GITHUB_WORKSPACE/apiproxy"
+        API_NAME="demoapi"
+        API_FOLDER="$GITHUB_WORKSPACE/$API_NAME"
 
         echo "Checking contents of API folder..."
         ls -R "$API_FOLDER"
@@ -55,7 +56,6 @@ jobs:
         echo "Import response:"
         echo "$IMPORT_RESPONSE"
 
-        # Extract revision safely
         REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision // empty')
         if [ -z "$REVISION" ]; then
           echo "❌ Error: Failed to detect revision from import. Check proxy bundle contents."
