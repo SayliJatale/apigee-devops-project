@@ -27,8 +27,7 @@ jobs:
     # 4️⃣ Install dependencies
     - name: Install dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y jq curl unzip zip libxml2-utils
+        sudo apt-get update && sudo apt-get install -y jq curl unzip zip libxml2-utils
 
     # 5️⃣ Install Apigee CLI
     - name: Install Apigee CLI
@@ -38,13 +37,17 @@ jobs:
         ./download.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6️⃣ Import API proxy via Apigee CLI (zip **without parent folder**!)
+    # 6️⃣ Import API proxy
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
         API_NAME="demoapi"
         API_FOLDER="$GITHUB_WORKSPACE/apiproxies/$API_NAME"
         ZIP_FILE="$GITHUB_WORKSPACE/$API_NAME.zip"
+
+        echo "=============================="
+        echo "Processing API proxy: $API_NAME"
+        echo "=============================="
 
         echo "Checking contents of API folder..."
         ls -R "$API_FOLDER"
@@ -53,9 +56,9 @@ jobs:
         find "$API_FOLDER" -name "*.xml" -exec xmllint --noout {} \;
         echo "All XML files are valid."
 
-        echo "Zipping API proxy folder contents (no parent folder)..."
+        echo "Zipping API proxy contents (relative paths only)..."
         cd "$API_FOLDER"
-        zip -r "$ZIP_FILE" *        # ✅ note the '*', no extra folder
+        zip -r "$ZIP_FILE" *       # crucial: zip only contents, no parent folder
         cd "$GITHUB_WORKSPACE"
 
         echo "Contents of zip:"
@@ -65,7 +68,8 @@ jobs:
         TOKEN=$(gcloud auth print-access-token)
 
         echo "Importing API proxy via Apigee CLI..."
-        IMPORT_OUTPUT=$(apigeecli apis import -f "$ZIP_FILE" --org "$ORG" --token "$TOKEN" 2>&1 || true)
+        IMPORT_OUTPUT=$(apigeecli apis import -f "$ZIP_FILE" --org "$ORG" --token "$TOKEN" 2>&1) || true
+
         echo "Raw import output:"
         echo "$IMPORT_OUTPUT"
 
@@ -78,7 +82,7 @@ jobs:
         echo "✅ Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 7️⃣ Deploy API proxy via Apigee CLI
+    # 7️⃣ Deploy API proxy
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
@@ -91,7 +95,7 @@ jobs:
         fi
 
         echo "Deploying revision $REVISION to environment $ENV..."
-        DEPLOY_OUTPUT=$(apigeecli apis deploy --name "$API_NAME" --rev "$REVISION" --env "$ENV" --org "$ORG" --token "$(gcloud auth print-access-token)" 2>&1 || true)
+        DEPLOY_OUTPUT=$(apigeecli apis deploy --name "$API_NAME" --rev "$REVISION" --env "$ENV" --org "$ORG" --token "$(gcloud auth print-access-token)" 2>&1) || true
 
         echo "Deploy output:"
         echo "$DEPLOY_OUTPUT"
