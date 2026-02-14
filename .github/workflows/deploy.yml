@@ -28,37 +28,43 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y jq curl unzip zip libxml2-utils
+        sudo apt-get install -y jq curl unzip zip
 
     # 5️⃣ Download Apigee CLI
-    - name: Download apigeecli
+    - name: Download Apigee CLI
       run: |
         curl -sL https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
         chmod +x download.sh
         ./download.sh
-        export PATH=$PATH:$HOME/.apigeecli/bin
+      env:
+        PATH: ${{ github.workspace }}/.apigeecli/bin:$PATH
 
-    # 6️⃣ Prepare proxy bundle
+    # 6️⃣ Prepare proxy bundle (zip)
     - name: Zip API proxy
       run: |
         API_FOLDER="$GITHUB_WORKSPACE/apiproxies/demoapi"
+        ZIP_FILE="$GITHUB_WORKSPACE/demoapi.zip"
+
         echo "Checking contents of API folder..."
         ls -R "$API_FOLDER"
 
         echo "Zipping proxy folder..."
-        zip -r apiproxy.zip "$API_FOLDER"/*
+        zip -r "$ZIP_FILE" "$API_FOLDER"
+
+        echo "ZIP created at $ZIP_FILE"
+        echo "ZIP_FILE=$ZIP_FILE" >> $GITHUB_ENV
 
     # 7️⃣ Import API proxy via apigeecli
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
-        API_FOLDER="$GITHUB_WORKSPACE/apiproxies/demoapi"
+        ZIP_FILE="${{ env.ZIP_FILE }}"
 
         echo "Getting access token..."
         TOKEN=$(gcloud auth print-access-token)
 
         echo "Importing API proxy via apigeecli..."
-        IMPORT_RESPONSE=$(apigeecli apis import --folder "$API_FOLDER" --org "$ORG" --token "$TOKEN" 2>&1 || true)
+        IMPORT_RESPONSE="$HOME/.apigeecli/bin/apigeecli apis import -f "$ZIP_FILE" --org "$ORG" --token "$TOKEN" 2>&1 || true"
 
         echo "Import response:"
         echo "$IMPORT_RESPONSE"
@@ -79,9 +85,10 @@ jobs:
         ORG="${{ secrets.APIGEE_ORG }}"
         ENV="${{ secrets.APIGEE_ENV }}"
         API_NAME="demoapi"
+        REVISION="${{ env.REVISION }}"
 
         if [ -z "$REVISION" ]; then
-          echo "❌ Error: REVISION is not set. Cannot deploy."
+          echo "Error: REVISION not set. Cannot deploy."
           exit 1
         fi
 
