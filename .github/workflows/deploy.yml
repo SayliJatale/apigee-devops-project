@@ -44,7 +44,8 @@ jobs:
         curl -sL https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
         chmod +x download.sh
         ./download.sh
-        export PATH=$PATH:$HOME/.apigeecli/bin
+        # Add apigeecli to PATH permanently for all subsequent steps
+        echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
     # 7️⃣ Import API proxy (validates automatically)
     - name: Import API proxy
