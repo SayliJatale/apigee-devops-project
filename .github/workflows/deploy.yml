@@ -63,7 +63,7 @@ jobs:
           exit 1
         fi
 
-        # Export for next step
+        # Export for deploy step
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
     # 7️⃣ Debug info before deploy
@@ -74,7 +74,7 @@ jobs:
         echo "REVISION=$REVISION"
         ls -l ./apiproxy
 
-    # 8️⃣ Deploy API proxy using fully-qualified revision path
+    # 8️⃣ Deploy API proxy using the new gcloud deployments create syntax
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
@@ -86,12 +86,12 @@ jobs:
           exit 1
         fi
 
-        # Fully-qualified revision path
-        REV_PATH="organizations/$ORG/apis/$API_NAME/revisions/$REVISION"
-
         echo "Deploying revision $REVISION to environment $ENV..."
-        gcloud apigee apis deploy "$REV_PATH" \
+        gcloud apigee deployments create \
+          --name="$API_NAME" \
+          --api="$API_NAME" \
+          --revision="$REVISION" \
           --environment="$ENV" \
-          --override
+          --organization="$ORG"
 
         echo "Deployment complete!"
