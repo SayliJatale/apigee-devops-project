@@ -27,7 +27,7 @@ jobs:
     # 4️⃣ Install dependencies
     - name: Install dependencies
       run: |
-        sudo apt-get update && sudo apt-get install -y jq curl unzip zip
+        sudo apt-get update && sudo apt-get install -y jq curl unzip
 
     # 5️⃣ Install Apigee CLI
     - name: Install Apigee CLI
@@ -35,59 +35,46 @@ jobs:
         curl -sL https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
         chmod +x download.sh
         ./download.sh
-        # Persist Apigee CLI path for all subsequent steps
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6️⃣ Prepare proxy bundle
-    - name: Prepare proxy bundle
-      run: |
-        if [ ! -f "./apiproxy.zip" ]; then
-          echo "Zipping proxy folder..."
-          zip -r apiproxy.zip ./apiproxy
-        fi
-
-    # 7️⃣ Import API proxy via Apigee CLI
+    # 6️⃣ Import API proxy via Apigee CLI
     - name: Import API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
-        API_NAME="demoapi"
+        API_FOLDER="./apiproxy"
 
         echo "Getting access token..."
         TOKEN=$(gcloud auth print-access-token)
 
         echo "Importing API proxy via apigeecli..."
-        IMPORT_RESPONSE=$(apigeecli apis import -f ./apiproxy --org "$ORG" --token "$TOKEN" 2>&1 || true)
+        IMPORT_RESPONSE=$(apigeecli apis import -f "$API_FOLDER" --org "$ORG" --token "$TOKEN" 2>&1 || true)
 
         echo "Import response: $IMPORT_RESPONSE"
 
-        # Extract revision number from CLI output JSON
-        REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision')
-        if [ -z "$REVISION" ] || [ "$REVISION" == "null" ]; then
-          echo "❌ Error: Failed to detect revision from import."
+        # Safely extract revision from JSON (if available)
+        REVISION=$(echo "$IMPORT_RESPONSE" | jq -r '.revision // empty')
+        if [ -z "$REVISION" ]; then
+          echo "❌ Error: Failed to detect revision from import. Check proxy folder contents."
           exit 1
         fi
 
         echo "Imported revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 8️⃣ Deploy API proxy via REST API
+    # 7️⃣ Deploy API proxy via Apigee CLI
     - name: Deploy API proxy
       run: |
         ORG="${{ secrets.APIGEE_ORG }}"
         ENV="${{ secrets.APIGEE_ENV }}"
         API_NAME="demoapi"
 
-        if [ -z "$REVISION" ] || [ "$REVISION" == "null" ]; then
+        if [ -z "$REVISION" ]; then
           echo "Error: REVISION is not set. Cannot deploy."
           exit 1
         fi
 
-        echo "Deploying revision $REVISION to environment $ENV via REST API..."
-        DEPLOY_RESPONSE=$(curl -s -X POST \
-          -H "Authorization: Bearer $(gcloud auth print-access-token)" \
-          -H "Content-Type: application/json" \
-          -d '{}' \
-          "https://apigee.googleapis.com/v1/organizations/$ORG/environments/$ENV/apis/$API_NAME/revisions/$REVISION/deployments" 2>&1 || true)
+        echo "Deploying revision $REVISION to environment $ENV..."
+        DEPLOY_RESPONSE=$(apigeecli apis deploy --name "$API_NAME" --rev "$REVISION" --env "$ENV" --org "$ORG" --token "$(gcloud auth print-access-token)" 2>&1 || true)
 
         echo "Deploy response: $DEPLOY_RESPONSE"
 
