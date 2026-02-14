@@ -1,0 +1,32 @@
+name: Deploy to Apigee X
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+    - name: Setup gcloud
+      uses: google-github-actions/setup-gcloud@v2
+
+    - name: Install apigeecli
+      run: |
+        curl -L https://github.com/apigee/apigeecli/releases/latest/download/apigeecli_linux_64.zip -o apigeecli.zip
+        unzip apigeecli.zip
+        chmod +x apigeecli
+        sudo mv apigeecli /usr/local/bin/
+
+    - name: Deploy proxy to Apigee
+      run: |
+        apigeecli apis create bundle -f ./apiproxy -n demoapi --org ${{ secrets.APIGEE_ORG }} --token "$(gcloud auth print-access-token)"
