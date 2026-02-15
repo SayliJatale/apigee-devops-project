@@ -1,15 +1,13 @@
-name: Apigee X CI/CD
+name: Deploy to Apigee X
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
 
 env:
-  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  APIGEE_ORG: ${{ secrets.APIGEE_ORG }}
-  APIGEE_ENV: ${{ secrets.APIGEE_ENV }}
-  PROXY_NAME: demoapi
+  PROJECT_ID: YOUR_GCP_PROJECT
+  APIGEE_ENV: eval
+  APIGEE_API: demoapi
 
 jobs:
   deploy:
@@ -19,60 +17,70 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    # Authenticate to GCP using service account JSON
+    # 🔐 Auth
     - name: Authenticate to Google Cloud
       uses: google-github-actions/auth@v2
       with:
         credentials_json: '${{ secrets.GCP_SA_KEY }}'
 
-    - name: Set gcloud project
-      run: gcloud config set project $PROJECT_ID
+    - name: Setup gcloud
+      uses: google-github-actions/setup-gcloud@v2
 
-    - name: Get access token
-      id: token
+    # 🔎 Find apiproxy automatically
+    - name: Locate apiproxy folder
       run: |
-        TOKEN=$(gcloud auth print-access-token)
-        echo "TOKEN=$TOKEN" >> $GITHUB_ENV
+        echo "Searching apiproxy folder..."
+        APIPROXY_PATH=$(find . -type d -name apiproxy | head -n 1)
 
-    # ZIP the proxy correctly (IMPORTANT)
-    - name: Create proxy bundle zip
-      run: |
-        cd apiproxy
-        zip -r ../proxy.zip ./*
-        cd ..
-
-    # IMPORT proxy
-    - name: Import proxy
-      run: |
-        echo "Importing proxy..."
-
-        RESPONSE=$(curl -s -X POST \
-        "https://apigee.googleapis.com/v1/organizations/$APIGEE_ORG/apis?action=import&name=$PROXY_NAME" \
-        -H "Authorization: Bearer $TOKEN" \
-        -H "Content-Type: multipart/form-data" \
-        -F "file=@proxy.zip")
-
-        echo "====== IMPORT RESPONSE ======"
-        echo "$RESPONSE"
-
-        REVISION=$(echo $RESPONSE | jq -r '.revision')
-        echo "REVISION=$REVISION" >> $GITHUB_ENV
-
-        if [ "$REVISION" == "null" ]; then
-          echo "IMPORT FAILED"
+        if [ -z "$APIPROXY_PATH" ]; then
+          echo "❌ ERROR: apiproxy folder not found in repo"
           exit 1
         fi
 
+        echo "Found apiproxy at: $APIPROXY_PATH"
+        echo "APIPROXY_PATH=$APIPROXY_PATH" >> $GITHUB_ENV
+
+    # 📦 Zip bundle
+    - name: Zip proxy bundle
+      run: |
+        cd "$APIPROXY_PATH"
+        zip -r ../../proxy.zip .
+        cd ../..
+
+    # 🚀 Import proxy
+    - name: Import API proxy
+      run: |
+        TOKEN=$(gcloud auth print-access-token)
+
+        echo "Importing proxy..."
+        curl -X POST \
+        "https://apigee.googleapis.com/v1/organizations/$PROJECT_ID/apis?action=import&name=$APIGEE_API" \
+        -H "Authorization: Bearer $TOKEN" \
+        -H "Content-Type: multipart/form-data" \
+        -F "file=@proxy.zip" \
+        -o response.json
+
+        cat response.json
+
+        REVISION=$(cat response.json | jq -r '.revision')
+
+        if [ "$REVISION" = "null" ]; then
+          echo "❌ IMPORT FAILED"
+          exit 1
+        fi
+
+        echo "REVISION=$REVISION" >> $GITHUB_ENV
         echo "Imported revision: $REVISION"
 
-    # DEPLOY proxy (FINAL FIX WITH OVERRIDE)
-    - name: Deploy proxy
+    # 🚀 Deploy
+    - name: Deploy to Apigee env
       run: |
-        echo "Deploying revision $REVISION to env $APIGEE_ENV"
+        TOKEN=$(gcloud auth print-access-token)
+
+        echo "Deploying revision $REVISION..."
 
         curl -X POST \
-        "https://apigee.googleapis.com/v1/organizations/$APIGEE_ORG/environments/$APIGEE_ENV/apis/$PROXY_NAME/revisions/$REVISION/deployments?override=true" \
+        "https://apigee.googleapis.com/v1/organizations/$PROJECT_ID/environments/$APIGEE_ENV/apis/$APIGEE_API/revisions/$REVISION/deployments?override=true" \
         -H "Authorization: Bearer $TOKEN"
 
-        echo ""
-        echo "DEPLOYMENT TRIGGERED"
+        echo "✅ DEPLOYMENT DONE"
