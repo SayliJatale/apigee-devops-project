@@ -1,95 +1,74 @@
-name: Apigee CI/CD Deploy
+name: Apigee Deploy
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. Checkout code
-    - name: Checkout repo
+    - name: Checkout
       uses: actions/checkout@v3
 
-    # 2. Install basic tools
-    - name: Install dependencies
+    - name: Install tools
       run: |
         sudo apt-get update
-        sudo apt-get install -y jq curl unzip zip libxml2-utils
+        sudo apt-get install -y unzip zip jq
 
-    # 3. Authenticate to GCP using Service Account
-    - name: Authenticate to Google Cloud
+    - name: Authenticate to GCP
       uses: google-github-actions/auth@v2
       with:
-        credentials_json: ${{ secrets.GCP_SA_KEY }}
+        credentials_json: '${{ secrets.GCP_SA_KEY }}'
 
-    # 4. Setup gcloud
-    - name: Setup gcloud SDK
+    - name: Setup gcloud
       uses: google-github-actions/setup-gcloud@v2
       with:
-        project_id: ${{ secrets.GCP_PROJECT_ID }}
+        project_id: ${{ secrets.GCP_PROJECT }}
 
-    # 5. Set gcloud project (IMPORTANT)
-    - name: Set gcloud project
+    - name: Install apigeecli
       run: |
-        gcloud config set project ${{ secrets.GCP_PROJECT_ID }}
-
-    # 6. Install Apigee CLI
-    - name: Install Apigee CLI
-      run: |
-        curl -sL https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
-        bash download.sh
+        curl -sL https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o dl.sh
+        bash dl.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 7. Verify CLI installed
-    - name: Verify apigeecli
+    - name: Verify
       run: |
         which apigeecli
         apigeecli --help
 
-    # 8. Validate XML
-    - name: Validate proxy XML
+    # IMPORTANT ZIP STEP
+    - name: Create proxy bundle
       run: |
-        echo "Validating XML..."
-        find apiproxies -name "*.xml" -exec xmllint --noout {} \;
-
-    # 9. Zip proxy correctly
-    - name: Zip API proxy
-      run: |
-        echo "Zipping proxy..."
+        echo "Creating bundle..."
         cd apiproxies
-        zip -r ../proxy.zip . -x "*/.*"
+        zip -r demoapi.zip demoapi
+        mkdir ../bundle
+        mv demoapi.zip ../bundle/
         cd ..
 
-    # 10. Import API proxy
-    - name: Import API Proxy
+    - name: Import proxy
       env:
         ORG: ${{ secrets.APIGEE_ORG }}
       run: |
-        echo "Getting token..."
         TOKEN=$(gcloud auth print-access-token)
 
-        echo "Importing proxy bundle..."
         apigeecli apis import \
-          -f proxy.zip \
+          -f bundle \
           -o $ORG \
           -t $TOKEN
 
-    # 11. Deploy API proxy
-    - name: Deploy API Proxy
+    - name: Deploy proxy
       env:
         ORG: ${{ secrets.APIGEE_ORG }}
         ENV: ${{ secrets.APIGEE_ENV }}
       run: |
-        echo "Getting token..."
         TOKEN=$(gcloud auth print-access-token)
 
-        echo "Deploying proxy..."
         apigeecli apis deploy \
           -n demoapi \
           -o $ORG \
           -e $ENV \
-          -t $TOKEN
+          -t $TOKEN \
+          --ovr
