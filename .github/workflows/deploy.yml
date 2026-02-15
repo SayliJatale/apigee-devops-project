@@ -10,81 +10,122 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repo
+    # --------------------------------------------------
+    # 1. Checkout repo
+    # --------------------------------------------------
+    - name: Checkout repository
       uses: actions/checkout@v3
 
-    # Authenticate to GCP (THIS creates creds)
-    - name: Authenticate to GCP
+    # --------------------------------------------------
+    # 2. Install dependencies
+    # --------------------------------------------------
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y jq curl unzip zip libxml2-utils
+
+    # --------------------------------------------------
+    # 3. Authenticate to Google Cloud (SERVICE ACCOUNT)
+    # --------------------------------------------------
+    - name: Authenticate to Google Cloud
       uses: google-github-actions/auth@v2
       with:
         credentials_json: '${{ secrets.GCP_SA_KEY }}'
 
-    # Setup gcloud CLI
+    # --------------------------------------------------
+    # 4. Setup gcloud SDK
+    # --------------------------------------------------
     - name: Setup gcloud
       uses: google-github-actions/setup-gcloud@v2
       with:
         project_id: ${{ secrets.GCP_PROJECT_ID }}
 
-    # IMPORTANT: activate service account for gcloud commands
+    # --------------------------------------------------
+    # 5. Activate service account + set project
+    # --------------------------------------------------
     - name: Activate service account
+      env:
+        PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
       run: |
+        echo "Activating service account..."
         gcloud auth activate-service-account --key-file=$GOOGLE_APPLICATION_CREDENTIALS
-        gcloud config set project ${{ secrets.GCP_PROJECT_ID }}
+        
+        echo "Setting project..."
+        gcloud config set project $PROJECT_ID
+        
+        echo "Auth check..."
         gcloud auth list
+        gcloud config list
 
-    # Install tools
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y jq unzip zip curl libxml2-utils
-
-    # Install Apigee CLI
+    # --------------------------------------------------
+    # 6. Install Apigee CLI
+    # --------------------------------------------------
     - name: Install Apigee CLI
       run: |
         curl -sL https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
         bash download.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # Validate XML
-    - name: Validate proxy XML
+    # --------------------------------------------------
+    # 7. Verify apigeecli installed
+    # --------------------------------------------------
+    - name: Verify apigeecli
       run: |
-        echo "Validating XML..."
+        which apigeecli
+        apigeecli --help
+
+    # --------------------------------------------------
+    # 8. Validate XML
+    # --------------------------------------------------
+    - name: Validate XML
+      run: |
+        echo "Validating XML files..."
         find apiproxies/demoapi -name "*.xml" -exec xmllint --noout {} \;
 
-    # Zip proxy bundle
-    - name: Zip proxy bundle
+    # --------------------------------------------------
+    # 9. Zip proxy bundle
+    # --------------------------------------------------
+    - name: Zip API proxy bundle
       run: |
-        echo "Zipping proxy..."
-        cd apiproxies/demoapi
-        zip -r ../../demoapi.zip . -x "*.DS_Store"
-        cd ../../
+        echo "Creating proxy zip..."
+        cd apiproxies
+        zip -r demoapi.zip demoapi
+        mv demoapi.zip ../
+        cd ..
+        echo "Zip created:"
         ls -lh demoapi.zip
 
-    # Import proxy
+    # --------------------------------------------------
+    # 10. Get access token
+    # --------------------------------------------------
+    - name: Get access token
+      id: token
+      run: |
+        echo "Getting access token..."
+        TOKEN=$(gcloud auth print-access-token)
+        echo "token=$TOKEN" >> $GITHUB_OUTPUT
+
+    # --------------------------------------------------
+    # 11. Import API to Apigee
+    # --------------------------------------------------
     - name: Import API proxy
       env:
         ORG: ${{ secrets.APIGEE_ORG }}
+        TOKEN: ${{ steps.token.outputs.token }}
       run: |
-        echo "Getting token..."
-        TOKEN=$(gcloud auth print-access-token)
+        echo "Importing proxy bundle..."
+        mkdir bundle
+        mv demoapi.zip bundle/
+        apigeecli apis import -f bundle -o $ORG -t $TOKEN
 
-        echo "Importing proxy..."
-        apigeecli apis import \
-          -f . \
-          -o $ORG \
-          -t $TOKEN
-
-    # Deploy proxy
+    # --------------------------------------------------
+    # 12. Deploy to environment
+    # --------------------------------------------------
     - name: Deploy API proxy
       env:
         ORG: ${{ secrets.APIGEE_ORG }}
         ENV: ${{ secrets.APIGEE_ENV }}
+        TOKEN: ${{ steps.token.outputs.token }}
       run: |
-        TOKEN=$(gcloud auth print-access-token)
-
         echo "Deploying proxy..."
-        apigeecli apis deploy \
-          -n demoapi \
-          -o $ORG \
-          -e $ENV \
-          -t $TOKEN
+        apigeecli apis deploy -n demoapi -o $ORG -e $ENV -t $TOKEN
