@@ -10,57 +10,71 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    # -------------------------------
     # 1. Checkout repo
+    # -------------------------------
     - name: Checkout repository
       uses: actions/checkout@v3
 
+    # -------------------------------
     # 2. Install dependencies
+    # -------------------------------
     - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y jq curl unzip zip libxml2-utils
 
-    # 3. Setup GCloud authentication
-    - name: Set up gcloud auth
+    # -------------------------------
+    # 3. Authenticate to GCP (SERVICE ACCOUNT)
+    # -------------------------------
+    - name: Setup GCloud Auth
       uses: google-github-actions/auth@v2
       with:
         credentials_json: '${{ secrets.GCP_SA_KEY }}'
 
-    # 4. Setup gcloud SDK
-    - name: Setup gcloud SDK
+    - name: Setup gcloud CLI
       uses: google-github-actions/setup-gcloud@v2
       with:
         project_id: ${{ secrets.GCP_PROJECT_ID }}
 
-    # 5. Install Apigee CLI
+    # -------------------------------
+    # 4. Install Apigee CLI
+    # -------------------------------
     - name: Install Apigee CLI
       run: |
         curl -sL https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
         bash download.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6. Verify apigeecli installed
     - name: Verify apigeecli
       run: |
         which apigeecli
-        apigeecli version
+        apigeecli --version || true
 
-    # 7. Validate XML files
+    # -------------------------------
+    # 5. Validate XML
+    # -------------------------------
     - name: Validate XML
       run: |
-        echo "Validating XML files..."
+        echo "Validating XML..."
         find apiproxies/demoapi -name "*.xml" -exec xmllint --noout {} \;
 
-    # 8. Zip proxy correctly (IMPORTANT)
-    - name: Zip API proxy
+    # -------------------------------
+    # 6. Zip proxy bundle correctly
+    # IMPORTANT: zip should contain demoapi folder
+    # -------------------------------
+    - name: Zip API proxy bundle
       run: |
-        echo "Zipping proxy..."
+        echo "Creating proxy zip..."
         cd apiproxies
         zip -r ../demoapi.zip demoapi
         cd ..
+        echo "ZIP created:"
         unzip -l demoapi.zip
 
-    # 9. Import proxy to Apigee
+    # -------------------------------
+    # 7. Import proxy to Apigee
+    # -------------------------------
     - name: Import API proxy
       env:
         ORG: ${{ secrets.APIGEE_ORG }}
@@ -68,29 +82,25 @@ jobs:
         echo "Getting access token..."
         TOKEN=$(gcloud auth print-access-token)
 
-        echo "Preparing bundle folder..."
-        mkdir bundle
-        mv demoapi.zip bundle/
-
-        echo "Importing proxy..."
+        echo "Importing proxy bundle..."
         apigeecli apis import \
-          -f bundle \
+          -f demoapi.zip \
           -o $ORG \
           -t $TOKEN
 
-    # 10. Deploy proxy
+    # -------------------------------
+    # 8. Deploy proxy
+    # -------------------------------
     - name: Deploy API proxy
       env:
         ORG: ${{ secrets.APIGEE_ORG }}
         ENV: ${{ secrets.APIGEE_ENV }}
       run: |
-        echo "Deploying proxy..."
         TOKEN=$(gcloud auth print-access-token)
 
+        echo "Deploying proxy..."
         apigeecli apis deploy \
           -n demoapi \
           -o $ORG \
           -e $ENV \
           -t $TOKEN
-
-        echo "Deployment SUCCESS"
