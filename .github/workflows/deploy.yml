@@ -1,82 +1,78 @@
-name: Apigee X Deploy
+name: Apigee X CI/CD
 
 on:
   push:
     branches:
       - main
 
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  APIGEE_ORG: ${{ secrets.APIGEE_ORG }}
+  APIGEE_ENV: ${{ secrets.APIGEE_ENV }}
+  PROXY_NAME: demoapi
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout
+    - name: Checkout code
       uses: actions/checkout@v4
 
-    # Auth GCP
+    # Authenticate to GCP using service account JSON
     - name: Authenticate to Google Cloud
       uses: google-github-actions/auth@v2
       with:
         credentials_json: '${{ secrets.GCP_SA_KEY }}'
 
-    - name: Setup gcloud
-      uses: google-github-actions/setup-gcloud@v2
+    - name: Set gcloud project
+      run: gcloud config set project $PROJECT_ID
 
-    # Create correct bundle
-    - name: Create proxy bundle
-      run: |
-        echo "Creating bundle..."
-
-        mkdir build
-        mkdir build/apiproxy
-        cp -r apiproxies/demoapi/* build/apiproxy/
-
-        cd build
-        zip -r demoapi.zip apiproxy
-
-        mkdir -p $GITHUB_WORKSPACE/bundle
-        mv demoapi.zip $GITHUB_WORKSPACE/bundle/
-
-        echo "Bundle ready"
-
-    # Get token
-    - name: Get token
+    - name: Get access token
+      id: token
       run: |
         TOKEN=$(gcloud auth print-access-token)
         echo "TOKEN=$TOKEN" >> $GITHUB_ENV
 
-    # Import proxy
+    # ZIP the proxy correctly (IMPORTANT)
+    - name: Create proxy bundle zip
+      run: |
+        cd apiproxy
+        zip -r ../proxy.zip ./*
+        cd ..
+
+    # IMPORT proxy
     - name: Import proxy
       run: |
         echo "Importing proxy..."
 
         RESPONSE=$(curl -s -X POST \
-        "https://apigee.googleapis.com/v1/organizations/${{ secrets.APIGEE_ORG }}/apis?action=import&name=demoapi" \
+        "https://apigee.googleapis.com/v1/organizations/$APIGEE_ORG/apis?action=import&name=$PROXY_NAME" \
         -H "Authorization: Bearer $TOKEN" \
         -H "Content-Type: multipart/form-data" \
-        -F "file=@bundle/demoapi.zip")
+        -F "file=@proxy.zip")
 
-        echo "====== RESPONSE ======"
+        echo "====== IMPORT RESPONSE ======"
         echo "$RESPONSE"
 
-        REVISION=$(echo "$RESPONSE" | sed -n 's/.*"revision": *"\?\([0-9]*\)"\?.*/\1/p')
+        REVISION=$(echo $RESPONSE | jq -r '.revision')
+        echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-        echo "Revision detected: $REVISION"
-
-        if [ -z "$REVISION" ]; then
+        if [ "$REVISION" == "null" ]; then
           echo "IMPORT FAILED"
           exit 1
         fi
 
-        echo "REVISION=$REVISION" >> $GITHUB_ENV
+        echo "Imported revision: $REVISION"
 
-    # Deploy
+    # DEPLOY proxy (FINAL FIX WITH OVERRIDE)
     - name: Deploy proxy
       run: |
-        echo "Deploying revision $REVISION"
+        echo "Deploying revision $REVISION to env $APIGEE_ENV"
 
         curl -X POST \
-        "https://apigee.googleapis.com/v1/organizations/${{ secrets.APIGEE_ORG }}/environments/${{ secrets.APIGEE_ENV }}/apis/demoapi/revisions/$REVISION/deployments" \
+        "https://apigee.googleapis.com/v1/organizations/$APIGEE_ORG/environments/$APIGEE_ENV/apis/$PROXY_NAME/revisions/$REVISION/deployments?override=true" \
         -H "Authorization: Bearer $TOKEN"
 
-        echo "SUCCESS: DEPLOYED"
+        echo ""
+        echo "DEPLOYMENT TRIGGERED"
