@@ -25,38 +25,49 @@ jobs:
     # Create correct bundle
     - name: Create proxy bundle
       run: |
-        echo "Creating bundle..."
+        set -x
+        echo "===== DEBUG: Creating bundle ====="
 
         mkdir build
         mkdir build/apiproxy
+        echo "Copying proxy files..."
         cp -r apiproxies/demoapi/* build/apiproxy/
 
         cd build
+        echo "Zipping proxy bundle..."
         zip -r demoapi.zip apiproxy
 
         mkdir -p $GITHUB_WORKSPACE/bundle
         mv demoapi.zip $GITHUB_WORKSPACE/bundle/
 
-        echo "Bundle ready"
+        echo "Bundle ready at:"
+        ls -la $GITHUB_WORKSPACE/bundle
 
     # Get token
     - name: Get token
       run: |
+        set -x
+        echo "===== DEBUG: Fetching access token ====="
         TOKEN=$(gcloud auth print-access-token)
+        echo "Token fetched successfully"
         echo "TOKEN=$TOKEN" >> $GITHUB_ENV
 
     # Import proxy
     - name: Import proxy
       run: |
-        echo "Importing proxy..."
+        set -x
+        echo "===== DEBUG: Importing proxy ====="
+        echo "Org: ${{ secrets.APIGEE_ORG }}"
+        echo "Bundle location: bundle/demoapi.zip"
+        ls -la bundle
 
-        RESPONSE=$(curl -s -X POST \
+        RESPONSE=$(curl -v -X POST \
         "https://apigee.googleapis.com/v1/organizations/${{ secrets.APIGEE_ORG }}/apis?action=import&name=demoapi" \
         -H "Authorization: Bearer $TOKEN" \
         -H "Content-Type: multipart/form-data" \
         -F "file=@bundle/demoapi.zip")
 
-        echo "====== RESPONSE ======"
+        echo "====== IMPORT RESPONSE ======"
         echo "$RESPONSE"
 
         REVISION=$(echo "$RESPONSE" | sed -n 's/.*"revision": *"\?\([0-9]*\)"\?.*/\1/p')
@@ -73,10 +84,13 @@ jobs:
     # Deploy
     - name: Deploy proxy
       run: |
-        echo "Deploying revision $REVISION"
+        set -x
+        echo "===== DEBUG: Deploy step ====="
+        echo "Deploying revision: $REVISION"
+        echo "Environment: ${{ secrets.APIGEE_ENV }}"
 
-        curl -X POST \
+        curl -v -X POST \
         "https://apigee.googleapis.com/v1/organizations/${{ secrets.APIGEE_ORG }}/environments/${{ secrets.APIGEE_ENV }}/apis/demoapi/revisions/$REVISION/deployments?override=true" \
         -H "Authorization: Bearer $TOKEN"
 
-        echo "SUCCESS: DEPLOYED"
+        echo "===== SUCCESS: DEPLOYED ====="
