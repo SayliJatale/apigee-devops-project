@@ -13,7 +13,7 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v4
 
-    # Auth GCP
+    # 🔐 Auth GCP
     - name: Authenticate to Google Cloud
       uses: google-github-actions/auth@v2
       with:
@@ -22,7 +22,7 @@ jobs:
     - name: Setup gcloud
       uses: google-github-actions/setup-gcloud@v2
 
-    # 🔍 Find proxy folder automatically
+    # 🔍 Find apiproxy folder
     - name: Locate Apigee proxy folder
       run: |
         echo "Searching for apiproxy folder..."
@@ -30,33 +30,36 @@ jobs:
         echo "Found: $PROXY_PATH"
         echo "PROXY_PATH=$PROXY_PATH" >> $GITHUB_ENV
 
-    # 📦 Create bundle correctly
+    # 📦 Create bundle
     - name: Create proxy bundle zip
       run: |
-        echo "Creating bundle..."
         cd $PROXY_PATH
         zip -r demoapi.zip .
         mkdir -p $GITHUB_WORKSPACE/bundle
         mv demoapi.zip $GITHUB_WORKSPACE/bundle/
 
-    # 🔑 Get token
+    # 🔑 Token
     - name: Get access token
       run: |
         TOKEN=$(gcloud auth print-access-token)
         echo "TOKEN=$TOKEN" >> $GITHUB_ENV
 
     # ⬆️ Import proxy
-    - name: Import proxy to Apigee
+    - name: Import proxy
       run: |
-        echo "Importing proxy..."
-        curl -X POST "https://apigee.googleapis.com/v1/organizations/${{ secrets.APIGEE_ORG }}/apis?action=import&name=demoapi" \
+        RESPONSE=$(curl -s -X POST \
+        "https://apigee.googleapis.com/v1/organizations/${{ secrets.APIGEE_ORG }}/apis?action=import&name=demoapi" \
         -H "Authorization: Bearer $TOKEN" \
         -H "Content-Type: multipart/form-data" \
-        -F "file=@bundle/demoapi.zip"
+        -F "file=@bundle/demoapi.zip")
 
-    # 🚀 Deploy proxy
+        echo $RESPONSE
+        REVISION=$(echo $RESPONSE | jq -r '.revision')
+        echo "REVISION=$REVISION" >> $GITHUB_ENV
+
+    # 🚀 Deploy latest revision
     - name: Deploy proxy
       run: |
-        echo "Deploying..."
-        curl -X POST "https://apigee.googleapis.com/v1/organizations/${{ secrets.APIGEE_ORG }}/environments/${{ secrets.APIGEE_ENV }}/apis/demoapi/revisions/1/deployments" \
+        curl -X POST \
+        "https://apigee.googleapis.com/v1/organizations/${{ secrets.APIGEE_ORG }}/environments/${{ secrets.APIGEE_ENV }}/apis/demoapi/revisions/${{ env.REVISION }}/deployments" \
         -H "Authorization: Bearer $TOKEN"
