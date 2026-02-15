@@ -26,40 +26,88 @@ jobs:
     - name: Create proxy bundle
       run: |
         set -x
-        echo "===== DEBUG: Creating bundle ====="
+        echo "=============================="
+        echo "DEBUG: START BUNDLE CREATION"
+        echo "=============================="
 
+        echo "Workspace path:"
+        pwd
+        ls -la
+
+        echo "Creating build folders..."
         mkdir build
         mkdir build/apiproxy
-        echo "Copying proxy files..."
+
+        echo "Copying proxy files from repo..."
+        echo "Source path: apiproxies/demoapi/"
+        ls -la apiproxies/demoapi/
+
         cp -r apiproxies/demoapi/* build/apiproxy/
 
+        echo "Contents inside build/apiproxy:"
+        ls -R build/apiproxy
+
         cd build
-        echo "Zipping proxy bundle..."
+
+        echo "Zipping bundle..."
         zip -r demoapi.zip apiproxy
+
+        echo "Zip created:"
+        ls -la
 
         mkdir -p $GITHUB_WORKSPACE/bundle
         mv demoapi.zip $GITHUB_WORKSPACE/bundle/
 
-        echo "Bundle ready at:"
+        echo "Final bundle location:"
         ls -la $GITHUB_WORKSPACE/bundle
+
+        echo "=============================="
+        echo "DEBUG: BUNDLE CREATION DONE"
+        echo "=============================="
 
     # Get token
     - name: Get token
       run: |
         set -x
-        echo "===== DEBUG: Fetching access token ====="
+        echo "=============================="
+        echo "DEBUG: FETCHING GCP TOKEN"
+        echo "=============================="
+
+        echo "gcloud info:"
+        gcloud info
+
+        echo "Active account:"
+        gcloud auth list
+
         TOKEN=$(gcloud auth print-access-token)
-        echo "Token fetched successfully"
+
+        echo "Token length:"
+        echo ${#TOKEN}
+
+        echo "Token first 20 chars:"
+        echo ${TOKEN:0:20}
+
         echo "TOKEN=$TOKEN" >> $GITHUB_ENV
+
+        echo "=============================="
+        echo "DEBUG: TOKEN STORED IN ENV"
+        echo "=============================="
 
     # Import proxy
     - name: Import proxy
       run: |
         set -x
-        echo "===== DEBUG: Importing proxy ====="
-        echo "Org: ${{ secrets.APIGEE_ORG }}"
-        echo "Bundle location: bundle/demoapi.zip"
+        echo "=============================="
+        echo "DEBUG: IMPORT STEP START"
+        echo "=============================="
+
+        echo "Org value:"
+        echo "${{ secrets.APIGEE_ORG }}"
+
+        echo "Checking bundle exists:"
         ls -la bundle
+
+        echo "Calling Apigee import API..."
 
         RESPONSE=$(curl -v -X POST \
         "https://apigee.googleapis.com/v1/organizations/${{ secrets.APIGEE_ORG }}/apis?action=import&name=demoapi" \
@@ -67,30 +115,58 @@ jobs:
         -H "Content-Type: multipart/form-data" \
         -F "file=@bundle/demoapi.zip")
 
-        echo "====== IMPORT RESPONSE ======"
+        echo "=============================="
+        echo "IMPORT RAW RESPONSE"
+        echo "=============================="
         echo "$RESPONSE"
 
         REVISION=$(echo "$RESPONSE" | sed -n 's/.*"revision": *"\?\([0-9]*\)"\?.*/\1/p')
 
-        echo "Revision detected: $REVISION"
+        echo "Extracted revision:"
+        echo "$REVISION"
 
         if [ -z "$REVISION" ]; then
-          echo "IMPORT FAILED"
+          echo "ERROR: REVISION EMPTY → IMPORT FAILED"
           exit 1
         fi
 
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
+        echo "=============================="
+        echo "DEBUG: IMPORT SUCCESS"
+        echo "=============================="
+
     # Deploy
     - name: Deploy proxy
       run: |
         set -x
-        echo "===== DEBUG: Deploy step ====="
-        echo "Deploying revision: $REVISION"
-        echo "Environment: ${{ secrets.APIGEE_ENV }}"
+        echo "=============================="
+        echo "DEBUG: DEPLOY STEP START"
+        echo "=============================="
 
-        curl -v -X POST \
+        echo "Org:"
+        echo "${{ secrets.APIGEE_ORG }}"
+
+        echo "Environment:"
+        echo "${{ secrets.APIGEE_ENV }}"
+
+        echo "Revision to deploy:"
+        echo "$REVISION"
+
+        echo "Token length:"
+        echo ${#TOKEN}
+
+        echo "Calling deploy API..."
+
+        DEPLOY_RESPONSE=$(curl -v -X POST \
         "https://apigee.googleapis.com/v1/organizations/${{ secrets.APIGEE_ORG }}/environments/${{ secrets.APIGEE_ENV }}/apis/demoapi/revisions/$REVISION/deployments?override=true" \
-        -H "Authorization: Bearer $TOKEN"
+        -H "Authorization: Bearer $TOKEN")
 
-        echo "===== SUCCESS: DEPLOYED ====="
+        echo "=============================="
+        echo "DEPLOY RESPONSE"
+        echo "=============================="
+        echo "$DEPLOY_RESPONSE"
+
+        echo "=============================="
+        echo "FINAL STATUS: DEPLOYMENT DONE"
+        echo "=============================="
