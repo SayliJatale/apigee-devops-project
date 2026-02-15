@@ -10,10 +10,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    # 📥 Checkout repo
     - name: Checkout code
       uses: actions/checkout@v4
 
-    # 🔐 Authenticate GCP
+    # 🔐 Authenticate to Google Cloud
     - name: Authenticate to Google Cloud
       uses: google-github-actions/auth@v2
       with:
@@ -22,15 +23,15 @@ jobs:
     - name: Setup gcloud
       uses: google-github-actions/setup-gcloud@v2
 
-    # 📦 Create bundle from apiproxies/demoapi
+    # 📦 Create proxy bundle from apiproxies/demoapi
     - name: Create proxy bundle zip
       run: |
-        echo "Zipping proxy from apiproxies/demoapi"
+        echo "Zipping proxy..."
         cd apiproxies/demoapi
         zip -r demoapi.zip .
         mkdir -p $GITHUB_WORKSPACE/bundle
         mv demoapi.zip $GITHUB_WORKSPACE/bundle/
-        echo "Bundle created"
+        echo "Bundle ready"
 
     # 🔑 Get access token
     - name: Get access token
@@ -41,19 +42,35 @@ jobs:
     # ⬆️ Import proxy
     - name: Import proxy to Apigee
       run: |
+        echo "Importing proxy bundle..."
+
         RESPONSE=$(curl -s -X POST \
         "https://apigee.googleapis.com/v1/organizations/${{ secrets.APIGEE_ORG }}/apis?action=import&name=demoapi" \
         -H "Authorization: Bearer $TOKEN" \
         -H "Content-Type: multipart/form-data" \
         -F "file=@bundle/demoapi.zip")
 
-        echo $RESPONSE
-        REVISION=$(echo $RESPONSE | jq -r '.revision')
+        echo "==== IMPORT RESPONSE ===="
+        echo "$RESPONSE"
+
+        REVISION=$(echo "$RESPONSE" | grep -o '"revision":[0-9]*' | grep -o '[0-9]*')
+
+        echo "Revision found: $REVISION"
+
+        if [ -z "$REVISION" ]; then
+          echo "❌ Import failed. No revision returned."
+          exit 1
+        fi
+
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
     # 🚀 Deploy proxy
     - name: Deploy proxy
       run: |
+        echo "Deploying revision $REVISION"
+
         curl -X POST \
-        "https://apigee.googleapis.com/v1/organizations/${{ secrets.APIGEE_ORG }}/environments/${{ secrets.APIGEE_ENV }}/apis/demoapi/revisions/${{ env.REVISION }}/deployments" \
+        "https://apigee.googleapis.com/v1/organizations/${{ secrets.APIGEE_ORG }}/environments/${{ secrets.APIGEE_ENV }}/apis/demoapi/revisions/$REVISION/deployments" \
         -H "Authorization: Bearer $TOKEN"
+
+        echo "✅ DEPLOYMENT DONE"
