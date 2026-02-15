@@ -20,14 +20,14 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y jq curl unzip zip libxml2-utils
 
-    # 3. Authenticate to Google Cloud using Service Account
-    - name: Authenticate to Google Cloud
+    # 3. Setup GCloud authentication
+    - name: Set up gcloud auth
       uses: google-github-actions/auth@v2
       with:
         credentials_json: '${{ secrets.GCP_SA_KEY }}'
 
     # 4. Setup gcloud SDK
-    - name: Set up gcloud
+    - name: Setup gcloud SDK
       uses: google-github-actions/setup-gcloud@v2
       with:
         project_id: ${{ secrets.GCP_PROJECT_ID }}
@@ -39,23 +39,28 @@ jobs:
         bash download.sh
         echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
 
-    # 6. Validate XML files
-    - name: Validate XML files
+    # 6. Verify apigeecli installed
+    - name: Verify apigeecli
+      run: |
+        which apigeecli
+        apigeecli version
+
+    # 7. Validate XML files
+    - name: Validate XML
       run: |
         echo "Validating XML files..."
-        find apiproxies -name "*.xml" -exec xmllint --noout {} \;
+        find apiproxies/demoapi -name "*.xml" -exec xmllint --noout {} \;
 
-    # 7. Zip API proxy (IMPORTANT)
+    # 8. Zip proxy correctly (IMPORTANT)
     - name: Zip API proxy
       run: |
         echo "Zipping proxy..."
         cd apiproxies
-        zip -r ../demoapi.zip demoapi -x "*/.*"
+        zip -r ../demoapi.zip demoapi
         cd ..
-        echo "Zip created:"
         unzip -l demoapi.zip
 
-    # 8. Import API proxy to Apigee
+    # 9. Import proxy to Apigee
     - name: Import API proxy
       env:
         ORG: ${{ secrets.APIGEE_ORG }}
@@ -63,13 +68,17 @@ jobs:
         echo "Getting access token..."
         TOKEN=$(gcloud auth print-access-token)
 
-        echo "Importing proxy bundle..."
+        echo "Preparing bundle folder..."
+        mkdir bundle
+        mv demoapi.zip bundle/
+
+        echo "Importing proxy..."
         apigeecli apis import \
-          -b demoapi.zip \
+          -f bundle \
           -o $ORG \
           -t $TOKEN
 
-    # 9. Deploy API proxy
+    # 10. Deploy proxy
     - name: Deploy API proxy
       env:
         ORG: ${{ secrets.APIGEE_ORG }}
@@ -83,3 +92,5 @@ jobs:
           -o $ORG \
           -e $ENV \
           -t $TOKEN
+
+        echo "Deployment SUCCESS"
