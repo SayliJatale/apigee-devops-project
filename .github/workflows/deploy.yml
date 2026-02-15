@@ -1,13 +1,85 @@
-- name: Import API proxy
-  env:
-    ORG: ${{ secrets.APIGEE_ORG }}
-    ENV: ${{ secrets.APIGEE_ENV }}
-  run: |
-    echo "Getting token..."
-    TOKEN=$(gcloud auth print-access-token)
+name: Apigee CI/CD Deploy
 
-    echo "Importing proxy..."
-    apigeecli apis import \
-      -b demoapi.zip \
-      -o $ORG \
-      -t $TOKEN
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. Checkout repo
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    # 2. Install dependencies
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y jq curl unzip zip libxml2-utils
+
+    # 3. Authenticate to Google Cloud using Service Account
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+    # 4. Setup gcloud SDK
+    - name: Set up gcloud
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+        project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+    # 5. Install Apigee CLI
+    - name: Install Apigee CLI
+      run: |
+        curl -sL https://raw.githubusercontent.com/apigee/apigeecli/main/downloadLatest.sh -o download.sh
+        bash download.sh
+        echo "$HOME/.apigeecli/bin" >> $GITHUB_PATH
+
+    # 6. Validate XML files
+    - name: Validate XML files
+      run: |
+        echo "Validating XML files..."
+        find apiproxies -name "*.xml" -exec xmllint --noout {} \;
+
+    # 7. Zip API proxy (IMPORTANT)
+    - name: Zip API proxy
+      run: |
+        echo "Zipping proxy..."
+        cd apiproxies
+        zip -r ../demoapi.zip demoapi -x "*/.*"
+        cd ..
+        echo "Zip created:"
+        unzip -l demoapi.zip
+
+    # 8. Import API proxy to Apigee
+    - name: Import API proxy
+      env:
+        ORG: ${{ secrets.APIGEE_ORG }}
+      run: |
+        echo "Getting access token..."
+        TOKEN=$(gcloud auth print-access-token)
+
+        echo "Importing proxy bundle..."
+        apigeecli apis import \
+          -b demoapi.zip \
+          -o $ORG \
+          -t $TOKEN
+
+    # 9. Deploy API proxy
+    - name: Deploy API proxy
+      env:
+        ORG: ${{ secrets.APIGEE_ORG }}
+        ENV: ${{ secrets.APIGEE_ENV }}
+      run: |
+        echo "Deploying proxy..."
+        TOKEN=$(gcloud auth print-access-token)
+
+        apigeecli apis deploy \
+          -n demoapi \
+          -o $ORG \
+          -e $ENV \
+          -t $TOKEN
