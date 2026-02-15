@@ -1,4 +1,4 @@
-name: Apigee CI/CD
+name: Apigee X CI/CD
 
 on:
   push:
@@ -10,10 +10,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Code
+    - name: Checkout code
       uses: actions/checkout@v4
 
-    # 🔐 Auth GCP
+    # 🔐 Authenticate GCP
     - name: Authenticate to Google Cloud
       uses: google-github-actions/auth@v2
       with:
@@ -22,30 +22,24 @@ jobs:
     - name: Setup gcloud
       uses: google-github-actions/setup-gcloud@v2
 
-    # 🔍 Find apiproxy folder
-    - name: Locate Apigee proxy folder
-      run: |
-        echo "Searching for apiproxy folder..."
-        PROXY_PATH=$(find . -type d -name "apiproxy" | head -n 1)
-        echo "Found: $PROXY_PATH"
-        echo "PROXY_PATH=$PROXY_PATH" >> $GITHUB_ENV
-
-    # 📦 Create bundle
+    # 📦 Create bundle from apiproxies/demoapi
     - name: Create proxy bundle zip
       run: |
-        cd $PROXY_PATH
+        echo "Zipping proxy from apiproxies/demoapi"
+        cd apiproxies/demoapi
         zip -r demoapi.zip .
         mkdir -p $GITHUB_WORKSPACE/bundle
         mv demoapi.zip $GITHUB_WORKSPACE/bundle/
+        echo "Bundle created"
 
-    # 🔑 Token
+    # 🔑 Get access token
     - name: Get access token
       run: |
         TOKEN=$(gcloud auth print-access-token)
         echo "TOKEN=$TOKEN" >> $GITHUB_ENV
 
     # ⬆️ Import proxy
-    - name: Import proxy
+    - name: Import proxy to Apigee
       run: |
         RESPONSE=$(curl -s -X POST \
         "https://apigee.googleapis.com/v1/organizations/${{ secrets.APIGEE_ORG }}/apis?action=import&name=demoapi" \
@@ -57,7 +51,7 @@ jobs:
         REVISION=$(echo $RESPONSE | jq -r '.revision')
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 🚀 Deploy latest revision
+    # 🚀 Deploy proxy
     - name: Deploy proxy
       run: |
         curl -X POST \
