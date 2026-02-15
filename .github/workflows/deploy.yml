@@ -10,11 +10,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # Checkout code
     - name: Checkout
       uses: actions/checkout@v4
 
-    # Authenticate GCP
+    # Auth GCP
     - name: Authenticate to Google Cloud
       uses: google-github-actions/auth@v2
       with:
@@ -23,14 +22,13 @@ jobs:
     - name: Setup gcloud
       uses: google-github-actions/setup-gcloud@v2
 
-    # Create correct Apigee bundle
+    # Create correct bundle
     - name: Create proxy bundle
       run: |
-        echo "Creating Apigee bundle..."
+        echo "Creating bundle..."
 
         mkdir build
         mkdir build/apiproxy
-
         cp -r apiproxies/demoapi/* build/apiproxy/
 
         cd build
@@ -41,7 +39,7 @@ jobs:
 
         echo "Bundle ready"
 
-    # Get access token
+    # Get token
     - name: Get token
       run: |
         TOKEN=$(gcloud auth print-access-token)
@@ -61,17 +59,18 @@ jobs:
         echo "====== RESPONSE ======"
         echo "$RESPONSE"
 
-        REVISION=$(echo "$RESPONSE" | grep -o '"revision":[0-9]*' | grep -o '[0-9]*')
+        REVISION=$(echo "$RESPONSE" | sed -n 's/.*"revision": *"\?\([0-9]*\)"\?.*/\1/p')
+
+        echo "Revision detected: $REVISION"
 
         if [ -z "$REVISION" ]; then
           echo "IMPORT FAILED"
           exit 1
         fi
 
-        echo "Revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # Deploy proxy
+    # Deploy
     - name: Deploy proxy
       run: |
         echo "Deploying revision $REVISION"
@@ -80,4 +79,4 @@ jobs:
         "https://apigee.googleapis.com/v1/organizations/${{ secrets.APIGEE_ORG }}/environments/${{ secrets.APIGEE_ENV }}/apis/demoapi/revisions/$REVISION/deployments" \
         -H "Authorization: Bearer $TOKEN"
 
-        echo "DEPLOY DONE"
+        echo "SUCCESS: DEPLOYED"
