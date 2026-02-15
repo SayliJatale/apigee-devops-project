@@ -1,4 +1,4 @@
-name: Apigee X CI/CD
+name: Apigee X Deploy
 
 on:
   push:
@@ -10,11 +10,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 📥 Checkout repo
-    - name: Checkout code
+    # Checkout code
+    - name: Checkout
       uses: actions/checkout@v4
 
-    # 🔐 Authenticate to Google Cloud
+    # Authenticate GCP
     - name: Authenticate to Google Cloud
       uses: google-github-actions/auth@v2
       with:
@@ -23,26 +23,34 @@ jobs:
     - name: Setup gcloud
       uses: google-github-actions/setup-gcloud@v2
 
-    # 📦 Create proxy bundle from apiproxies/demoapi
-    - name: Create proxy bundle zip
+    # Create correct Apigee bundle
+    - name: Create proxy bundle
       run: |
-        echo "Zipping proxy..."
-        cd apiproxies/demoapi
-        zip -r demoapi.zip .
+        echo "Creating Apigee bundle..."
+
+        mkdir build
+        mkdir build/apiproxy
+
+        cp -r apiproxies/demoapi/* build/apiproxy/
+
+        cd build
+        zip -r demoapi.zip apiproxy
+
         mkdir -p $GITHUB_WORKSPACE/bundle
         mv demoapi.zip $GITHUB_WORKSPACE/bundle/
+
         echo "Bundle ready"
 
-    # 🔑 Get access token
-    - name: Get access token
+    # Get access token
+    - name: Get token
       run: |
         TOKEN=$(gcloud auth print-access-token)
         echo "TOKEN=$TOKEN" >> $GITHUB_ENV
 
-    # ⬆️ Import proxy
-    - name: Import proxy to Apigee
+    # Import proxy
+    - name: Import proxy
       run: |
-        echo "Importing proxy bundle..."
+        echo "Importing proxy..."
 
         RESPONSE=$(curl -s -X POST \
         "https://apigee.googleapis.com/v1/organizations/${{ secrets.APIGEE_ORG }}/apis?action=import&name=demoapi" \
@@ -50,21 +58,20 @@ jobs:
         -H "Content-Type: multipart/form-data" \
         -F "file=@bundle/demoapi.zip")
 
-        echo "==== IMPORT RESPONSE ===="
+        echo "====== RESPONSE ======"
         echo "$RESPONSE"
 
         REVISION=$(echo "$RESPONSE" | grep -o '"revision":[0-9]*' | grep -o '[0-9]*')
 
-        echo "Revision found: $REVISION"
-
         if [ -z "$REVISION" ]; then
-          echo "❌ Import failed. No revision returned."
+          echo "IMPORT FAILED"
           exit 1
         fi
 
+        echo "Revision: $REVISION"
         echo "REVISION=$REVISION" >> $GITHUB_ENV
 
-    # 🚀 Deploy proxy
+    # Deploy proxy
     - name: Deploy proxy
       run: |
         echo "Deploying revision $REVISION"
@@ -73,4 +80,4 @@ jobs:
         "https://apigee.googleapis.com/v1/organizations/${{ secrets.APIGEE_ORG }}/environments/${{ secrets.APIGEE_ENV }}/apis/demoapi/revisions/$REVISION/deployments" \
         -H "Authorization: Bearer $TOKEN"
 
-        echo "✅ DEPLOYMENT DONE"
+        echo "DEPLOY DONE"
