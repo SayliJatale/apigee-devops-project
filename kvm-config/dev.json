@@ -1,0 +1,9 @@
+{
+  "kvm_name": "sample-kvm",
+  "encrypted": false,
+  "entries": [
+    { "name": "username", "value": "devuser" },
+    { "name": "password", "value": "devpass" },
+    { "name": "url", "value": "https://dev.backend.com" }
+  ]
+}

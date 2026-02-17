@@ -1,0 +1,191 @@
+name: Apigee KVM Enterprise Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment (dev/qa/prod)"
+        required: true
+        default: dev
+      action:
+        description: "Action: create | update | delete"
+        required: true
+        default: create
+
+env:
+  APIGEE_ORG: your-apigee-org
+  PROJECT_ID: your-gcp-project
+
+jobs:
+  kvm:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    # -----------------------------
+    # Authenticate GCP
+    # -----------------------------
+    - name: Auth GCP
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+    - name: Setup gcloud
+      uses: google-github-actions/setup-gcloud@v2
+
+    # -----------------------------
+    # Generate token
+    # -----------------------------
+    - name: Generate token
+      run: |
+        echo "Generating token..."
+        TOKEN=$(gcloud auth print-access-token)
+        echo "TOKEN=$TOKEN" >> $GITHUB_ENV
+
+    # -----------------------------
+    # Load config
+    # -----------------------------
+    - name: Load config
+      run: |
+        ENV_NAME="${{ github.event.inputs.environment }}"
+        CONFIG_FILE="kvm-config/${ENV_NAME}.json"
+
+        echo "Reading config from $CONFIG_FILE"
+
+        if [ ! -f "$CONFIG_FILE" ]; then
+          echo "Config file missing!"
+          exit 1
+        fi
+
+        KVM_NAME=$(jq -r '.kvm_name' $CONFIG_FILE)
+        ENCRYPTED=$(jq -r '.encrypted' $CONFIG_FILE)
+
+        echo "ENV_NAME=$ENV_NAME" >> $GITHUB_ENV
+        echo "KVM_NAME=$KVM_NAME" >> $GITHUB_ENV
+        echo "ENCRYPTED=$ENCRYPTED" >> $GITHUB_ENV
+        echo "CONFIG_FILE=$CONFIG_FILE" >> $GITHUB_ENV
+
+    # -----------------------------
+    # DEBUG EVERYTHING
+    # -----------------------------
+    - name: Debug all variables
+      run: |
+        echo "========== DEBUG START =========="
+        echo "ORG: $APIGEE_ORG"
+        echo "PROJECT: $PROJECT_ID"
+        echo "ENV: $ENV_NAME"
+        echo "ACTION: ${{ github.event.inputs.action }}"
+        echo "KVM NAME: $KVM_NAME"
+        echo "ENCRYPTED: $ENCRYPTED"
+        echo "CONFIG FILE: $CONFIG_FILE"
+        echo "================================="
+
+    # -----------------------------
+    # Check if KVM exists
+    # -----------------------------
+    - name: Check KVM exists
+      id: checkkvm
+      run: |
+        echo "Checking if KVM exists..."
+
+        STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+        "https://apigee.googleapis.com/v1/organizations/$APIGEE_ORG/environments/$ENV_NAME/keyvaluemaps/$KVM_NAME" \
+        -H "Authorization: Bearer $TOKEN")
+
+        echo "HTTP Status: $STATUS"
+
+        if [ "$STATUS" = "200" ]; then
+          echo "KVM_EXISTS=true" >> $GITHUB_ENV
+        else
+          echo "KVM_EXISTS=false" >> $GITHUB_ENV
+        fi
+
+    # -----------------------------
+    # DELETE KVM
+    # -----------------------------
+    - name: Delete KVM
+      if: ${{ github.event.inputs.action == 'delete' }}
+      run: |
+        echo "Deleting KVM: $KVM_NAME"
+
+        curl -v -X DELETE \
+        "https://apigee.googleapis.com/v1/organizations/$APIGEE_ORG/environments/$ENV_NAME/keyvaluemaps/$KVM_NAME" \
+        -H "Authorization: Bearer $TOKEN"
+
+        echo "Delete complete"
+        exit 0
+
+    # -----------------------------
+    # Create KVM if not exists
+    # -----------------------------
+    - name: Create KVM
+      if: ${{ env.KVM_EXISTS == 'false' && github.event.inputs.action != 'delete' }}
+      run: |
+        echo "Creating KVM..."
+
+        curl -v -X POST \
+        "https://apigee.googleapis.com/v1/organizations/$APIGEE_ORG/environments/$ENV_NAME/keyvaluemaps" \
+        -H "Authorization: Bearer $TOKEN" \
+        -H "Content-Type: application/json" \
+        -d '{
+              "name": "'"$KVM_NAME"'",
+              "encrypted": '"$ENCRYPTED"'
+            }'
+
+        echo "KVM created"
+
+    # -----------------------------
+    # Clear old entries (update mode)
+    # -----------------------------
+    - name: Delete existing entries
+      if: ${{ github.event.inputs.action == 'update' }}
+      run: |
+        echo "Deleting old entries..."
+
+        KEYS=$(curl -s \
+        "https://apigee.googleapis.com/v1/organizations/$APIGEE_ORG/environments/$ENV_NAME/keyvaluemaps/$KVM_NAME/entries" \
+        -H "Authorization: Bearer $TOKEN" | jq -r '.[]?.name')
+
+        for key in $KEYS; do
+          echo "Deleting key: $key"
+          curl -s -X DELETE \
+          "https://apigee.googleapis.com/v1/organizations/$APIGEE_ORG/environments/$ENV_NAME/keyvaluemaps/$KVM_NAME/entries/$key" \
+          -H "Authorization: Bearer $TOKEN"
+        done
+
+    # -----------------------------
+    # Add entries
+    # -----------------------------
+    - name: Add entries to KVM
+      if: ${{ github.event.inputs.action != 'delete' }}
+      run: |
+        echo "Adding entries..."
+
+        jq -c '.entries[]' $CONFIG_FILE | while read entry; do
+          KEY=$(echo $entry | jq -r '.name')
+          VALUE=$(echo $entry | jq -r '.value')
+
+          echo "Adding $KEY=$VALUE"
+
+          curl -v -X POST \
+          "https://apigee.googleapis.com/v1/organizations/$APIGEE_ORG/environments/$ENV_NAME/keyvaluemaps/$KVM_NAME/entries" \
+          -H "Authorization: Bearer $TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+                "name": "'"$KEY"'",
+                "value": "'"$VALUE"'"
+              }'
+        done
+
+    # -----------------------------
+    # Verify
+    # -----------------------------
+    - name: Verify final KVM
+      run: |
+        echo "Final KVM entries:"
+
+        curl -s \
+        "https://apigee.googleapis.com/v1/organizations/$APIGEE_ORG/environments/$ENV_NAME/keyvaluemaps/$KVM_NAME/entries" \
+        -H "Authorization: Bearer $TOKEN" | jq
